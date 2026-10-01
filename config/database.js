@@ -2,7 +2,8 @@ const LIVE_DB_NAME = "crumbs";
 const SANDBOX_DB_NAME = "crumbs_dev";
 
 function getDatabaseName(uri) {
-  return new URL(uri).pathname.replace(/^\//, "");
+  const match = uri.match(/^mongodb(?:\+srv)?:\/\/[^/]*\/([^/?]+)(?:\?|$)/);
+  return match ? match[1] : "";
 }
 
 function assertSafeDatabase(uri) {
@@ -12,6 +13,14 @@ function assertSafeDatabase(uri) {
 
   const isProduction = process.env.NODE_ENV === "production";
   const dbName = getDatabaseName(uri);
+
+  if (!dbName) {
+    throw new Error(
+      "Could not read a database name from MONGODB_URI. " +
+        "Expected mongodb:// or mongodb+srv:// with a database in the path, " +
+        'for example ".../crumbs_dev?ssl=true".',
+    );
+  }
 
   if (isProduction && dbName !== LIVE_DB_NAME) {
     throw new Error(
