@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
 const { z } = require("zod");
 const { rateLimit } = require("express-rate-limit");
 const User = require("../models/User");
@@ -43,6 +44,13 @@ const changePasswordSchema = z.object({
   newPassword: z.string().min(8, "Password must be at least 8 characters"),
 });
 
+const AVATAR_MAX_BYTES = 1024 * 1024;
+
+const avatarBody = express.raw({
+  type: ["image/jpeg", "image/png", "image/webp"],
+  limit: AVATAR_MAX_BYTES,
+});
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -58,6 +66,33 @@ const passwordLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many attempts, try again later" },
 });
+
+function sniffImageType(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "image/jpeg";
+  }
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (buf.length > 8 && buf.subarray(0, 8).equals(pngSignature)) {
+    return "image/png";
+  }
+  if (
+    buf.length > 12 &&
+    buf.toString("ascii", 0, 4) === "RIFF" &&
+    buf.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function receiveAvatar(req, res, next) {
+  avatarBody(req, res, (error) => {
+    if (error?.type === "entity.too.large") {
+      return res.status(413).json({ message: "Image is too large (1 MB max)" });
+    }
+    next(error);
+  });
+}
 
 function validationError(res, error) {
   return res.status(400).json({
@@ -186,6 +221,52 @@ router.post("/password", requireAuth, passwordLimiter, async (req, res) => {
   await user.save();
 
   res.status(204).send();
+});
+
+router.put("/avatar", requireAuth, receiveAvatar, async (req, res) => {
+  const image = Buffer.isBuffer(req.body) ? req.body : null;
+  const contentType = image && sniffImageType(image);
+
+  if (!contentType) {
+    return res
+      .status(400)
+      .json({ message: "Upload a JPEG, PNG or WebP image" });
+  }
+
+  req.user.avatarData = image;
+  req.user.avatarContentType = contentType;
+  req.user.avatarUpdatedAt = new Date();
+  await req.user.save();
+
+  res.json({ user: req.user.toPublic() });
+});
+
+router.delete("/avatar", requireAuth, async (req, res) => {
+  await User.updateOne(
+    { _id: req.user._id },
+    { $unset: { avatarData: 1, avatarContentType: 1, avatarUpdatedAt: 1 } },
+  );
+
+  const user = await User.findById(req.user._id);
+  res.json({ user: user.toPublic() });
+});
+
+router.get("/avatar/:id", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    return res.status(404).end();
+  }
+
+  const user = await User.findById(req.params.id).select("+avatarData");
+  if (!user?.avatarData) {
+    return res.status(404).end();
+  }
+
+  res.set({
+    "Content-Type": user.avatarContentType,
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.send(Buffer.from(user.avatarData));
 });
 
 module.exports = router;
