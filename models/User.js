@@ -10,6 +10,7 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
   },
+  name: { type: String, trim: true, maxlength: 50, default: "" },
   password: { type: String, required: true, select: false },
   createdAt: { type: Date, default: Date.now },
 });
@@ -24,6 +25,7 @@ userSchema.methods.toPublic = function toPublic() {
   return {
     id: this._id.toString(),
     username: this.username,
+    name: this.name ?? "",
     email: this.email,
     createdAt: this.createdAt,
   };

@@ -94,9 +94,11 @@ Base path `/api/auth`. Auth is a JWT in an **httpOnly cookie**, so browsers need
 | POST | `/api/auth/login` | Sign in. `401` on bad credentials |
 | POST | `/api/auth/logout` | Clear the cookie |
 | GET | `/api/auth/me` | Current user, or `401` |
+| PATCH | `/api/auth/me` | Update `name`, `username`, `email`. `409` with per-field errors if taken |
+| POST | `/api/auth/password` | Change password. `400` if `currentPassword` is wrong. `204` on success |
 | GET | `/health` | Liveness plus database connection state |
 
-Login and register are rate limited to 10 attempts per 15 minutes per IP. On a shared network this can throttle colleagues; the window resets on its own.
+Login and register are rate limited to 10 attempts per 15 minutes per IP. On a shared network this can throttle colleagues; the window resets on its own. Password changes have their own separate limit of the same size.
 
 `GET /` still returns the scaffold string `Initial commit!` and is not part of the API.
 
