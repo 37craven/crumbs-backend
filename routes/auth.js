@@ -34,7 +34,8 @@ const loginSchema = z.object({
 });
 
 const updateProfileSchema = z.object({
-  name: z.string().trim().max(50, "Name must be at most 50 characters"),
+  firstName: z.string().trim().max(50, "First name must be at most 50 characters"),
+  lastName: z.string().trim().max(50, "Last name must be at most 50 characters"),
   username: usernameSchema,
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
 });
@@ -156,7 +157,7 @@ router.patch("/me", requireAuth, async (req, res) => {
   const parsed = updateProfileSchema.safeParse(req.body);
   if (!parsed.success) return validationError(res, parsed.error);
 
-  const { name, username, email } = parsed.data;
+  const { firstName, lastName, username, email } = parsed.data;
   const usernameLower = username.toLowerCase();
 
   const conflicts = await User.find({
@@ -179,7 +180,7 @@ router.patch("/me", requireAuth, async (req, res) => {
       .json({ message: "Email or username already in use", fields });
   }
 
-  req.user.set({ name, username, email });
+  req.user.set({ firstName, lastName, username, email, name: undefined });
   try {
     await req.user.save();
   } catch (error) {

@@ -10,7 +10,10 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
   },
-  name: { type: String, trim: true, maxlength: 50, default: "" },
+  firstName: { type: String, trim: true, maxlength: 50, default: "" },
+  lastName: { type: String, trim: true, maxlength: 50, default: "" },
+  // Legacy full name. Read as a fallback, cleared the next time the user saves their profile.
+  name: { type: String, trim: true, maxlength: 50 },
   password: { type: String, required: true, select: false },
   avatarData: { type: Buffer, select: false },
   avatarContentType: { type: String },
@@ -28,7 +31,9 @@ userSchema.methods.toPublic = function toPublic() {
   return {
     id: this._id.toString(),
     username: this.username,
-    name: this.name ?? "",
+    firstName: this.firstName || (this.name ?? "").trim().split(/\s+/)[0] || "",
+    lastName:
+      this.lastName || (this.name ?? "").trim().split(/\s+/).slice(1).join(" "),
     avatarUrl: this.avatarUpdatedAt
       ? `/api/auth/avatar/${this._id}?v=${this.avatarUpdatedAt.getTime()}`
       : null,
