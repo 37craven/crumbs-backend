@@ -252,6 +252,14 @@ router.delete("/avatar", requireAuth, async (req, res) => {
   res.json({ user: user.toPublic() });
 });
 
+router.get("/friends", requireAuth, async (req, res) => {
+  const friends = await User.find({ _id: { $in: req.user.friends } }).sort({
+    usernameLower: 1,
+  });
+
+  res.json({ friends: friends.map((friend) => friend.toSummary()) });
+});
+
 router.get("/avatar/:id", async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
     return res.status(404).end();
