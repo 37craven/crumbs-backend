@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./routes/auth");
+const crumbRoutes = require("./routes/crumbs");
 const { assertSafeDatabase } = require("./config/database");
 
 process.loadEnvFile();
@@ -47,6 +48,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/crumbs", crumbRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

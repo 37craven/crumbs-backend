@@ -94,10 +94,14 @@ Base path `/api/auth`. Auth is a JWT in an **httpOnly cookie**, so browsers need
 | POST | `/api/auth/login` | Sign in. `401` on bad credentials |
 | POST | `/api/auth/logout` | Clear the cookie |
 | GET | `/api/auth/me` | Current user, or `401` |
-| PATCH | `/api/auth/me` | Update `name`, `username`, `email`. `409` with per-field errors if taken |
+| PATCH | `/api/auth/me` | Update `firstName`, `lastName`, `username`, `email`. `409` with per-field errors if taken |
 | POST | `/api/auth/password` | Change password. `400` if `currentPassword` is wrong. `204` on success |
 | PUT | `/api/auth/avatar` | Upload a profile photo as the raw request body (JPEG, PNG or WebP, 1 MB max). Returns the user |
 | DELETE | `/api/auth/avatar` | Remove the profile photo. Returns the user |
+| GET | `/api/auth/friends` | The current user's friends (id, username, names, photo only), sorted by username |
+| GET | `/api/crumbs` | The current user's crumbs, newest first |
+| POST | `/api/crumbs?caption=...` | Upload a photo as the raw request body (JPEG, PNG or WebP, 3 MB max) with an optional caption of up to 140 characters. Returns the crumb |
+| GET | `/api/crumbs/:id/image` | Serve a crumb's photo. Public and cached for a year |
 | GET | `/api/auth/avatar/:id` | Serve a user's photo. Public and cached for a year; the `avatarUrl` carries a `?v=` version |
 | GET | `/health` | Liveness plus database connection state |
 
