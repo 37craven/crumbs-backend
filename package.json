@@ -2,12 +2,15 @@
   "name": "crumbs-backend",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node app.js",
-    "dev": "node --watch app.js",
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node scripts/seed.js",
     "db:reset": "node scripts/reset-sandbox.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test \"tests/*.test.js\"",
+    "smoke": "node scripts/smoke.js",
+    "refresh": "node scripts/refresh-summaries.js"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +27,7 @@
     "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.2",
+    "multer": "^2.4.0",
     "zod": "^4.6.5"
   }
 }

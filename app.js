@@ -1,21 +1,21 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const { UPLOAD_DIR, PUBLIC_UPLOAD_PATH } = require("./config/uploads");
+const requestLogger = require("./middleware/requestLogger");
+const notFound = require("./middleware/notFound");
+const errorHandler = require("./middleware/errorHandler");
+const healthRoutes = require("./routes/health");
 const authRoutes = require("./routes/auth");
-const { assertSafeDatabase } = require("./config/database");
-
-process.loadEnvFile();
+const eventRoutes = require("./routes/events");
+const widgetRoutes = require("./routes/widgets");
+const linkRoutes = require("./routes/links");
+const friendRoutes = require("./routes/friends");
 
 const app = express();
-const PORT = process.env.PORT ?? 3000;
 
-if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET is not set. Check your .env file.");
-}
-
-const dbName = assertSafeDatabase(process.env.MONGODB_URI);
-
+// 1. Middleware that runs on every request
+app.use(requestLogger);
 app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
@@ -25,32 +25,26 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => console.log(`Connected to MongoDB (${dbName})`))
-  .catch((err) => {
-    console.error("Connection failed: ", err.message);
-    process.exit(1);
-  });
+// 2. Uploaded images. "nosniff" stops browsers guessing a file is something
+//    other than the image type we stored.
+app.use(
+  PUBLIC_UPLOAD_PATH,
+  express.static(UPLOAD_DIR, {
+    index: false,
+    setHeaders: (res) => res.set("X-Content-Type-Options", "nosniff"),
+  }),
+);
 
-app.get("/", (req, res) => res.send("Initial commit!"));
-
-app.get("/health", (req, res) => {
-  const states = ["disconnected", "connected", "connecting", "disconnecting"];
-  const state = mongoose.connection.readyState;
-  res.json({
-    status: "ok",
-    database: states[state] ?? "unknown",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
-});
-
+// 3. Routes
+app.use("/", healthRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/events", eventRoutes);
+app.use("/api/widgets", widgetRoutes);
+app.use("/api/links", linkRoutes);
+app.use("/api/friends", friendRoutes);
 
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status ?? 500).json({ message: "Internal server error" });
-});
+// 4. Order matters: unmatched URLs -> 404, then errors from anywhere above.
+app.use(notFound);
+app.use(errorHandler);
 
-app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
+module.exports = app;
