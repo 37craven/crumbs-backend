@@ -10,6 +10,10 @@ const PUBLIC_UPLOAD_PATH = "/uploads";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per image
 
+// Profile photos are resized to a small square by the client before upload,
+// so they get a much tighter limit than collection pictures.
+const MAX_AVATAR_SIZE = 1024 * 1024; // 1 MB
+
 // Allowed image types and the file extension we give each one. The extension
 // comes from this table, never from the user's file name.
 // SVG is deliberately missing: an SVG can contain scripts.
@@ -24,5 +28,6 @@ module.exports = {
   UPLOAD_DIR,
   PUBLIC_UPLOAD_PATH,
   MAX_FILE_SIZE,
+  MAX_AVATAR_SIZE,
   ALLOWED_IMAGE_TYPES,
 };

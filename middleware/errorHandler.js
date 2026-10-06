@@ -1,5 +1,6 @@
 const multer = require("multer");
 const HttpError = require("../utils/httpError");
+const { MAX_FILE_SIZE } = require("../config/uploads");
 
 // Turns any error into the one JSON shape the API uses:
 //   { "message": "...", "fields": { "title": ["..."] } }   (fields is optional)
@@ -53,7 +54,10 @@ function errorHandler(err, req, res, next) {
   // Upload problems caught by multer.
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
-      return res.status(413).json({ message: "Each image must be 5 MB or less" });
+      // Avatars are capped lower than collection pictures, so report the limit
+      // multer actually enforced rather than a fixed number.
+      const mb = Math.round((err.limit ?? MAX_FILE_SIZE) / (1024 * 1024));
+      return res.status(413).json({ message: `Each image must be ${mb} MB or less` });
     }
     return res.status(400).json({ message: `Upload rejected: ${err.message}` });
   }

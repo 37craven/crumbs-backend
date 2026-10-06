@@ -32,4 +32,15 @@ const uploadImage = multer({
   limits: { fileSize: MAX_FILE_SIZE, files: 1 },
 }).single("image");
 
-module.exports = { uploadImage };
+// Same as uploadImage but capped at `bytes`. Profile photos are small square
+// crops the client has already resized, so they get a tighter limit than the
+// 5 MB collection pictures.
+function imageUploader(bytes) {
+  return multer({
+    storage,
+    fileFilter,
+    limits: { fileSize: bytes, files: 1 },
+  }).single("image");
+}
+
+module.exports = { uploadImage, imageUploader };

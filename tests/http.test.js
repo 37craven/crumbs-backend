@@ -50,7 +50,7 @@ test("unknown route -> 404 JSON", async () => {
 });
 
 test("no cookie -> 401", async () => {
-  for (const path of ["/api/collections", "/api/collections/search", `/api/widgets/${validId}`, "/api/friends", "/api/friends/requests"]) {
+  for (const path of ["/api/collections", "/api/collections/search", `/api/widgets/${validId}`, "/api/friends", "/api/friends/requests", "/api/crumbs"]) {
     const { status, json } = await call("GET", path, { auth: false });
     assert.equal(status, 401, path);
     assert.equal(json.message, "Not authenticated");
@@ -70,6 +70,7 @@ test("malformed ids -> 400 before the database is touched", async () => {
     ["DELETE", `/api/collections/${validId}/collaborators/bad`],
     ["DELETE", "/api/friends/bad"],
     ["PATCH", "/api/friends/requests/bad/accept"],
+    ["DELETE", "/api/crumbs/bad"],
   ]) {
     const { status, json } = await call(method, path, method === "GET" ? {} : { body: {} });
     assert.equal(status, 400, `${method} ${path}`);

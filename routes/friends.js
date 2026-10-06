@@ -16,11 +16,25 @@ router.use(requireAuth);
 router.param("id", validateObjectIdParam);
 router.param("userId", validateObjectIdParam);
 
-// The only things other users ever see about a person: id and username.
-const person = (user) => ({ id: String(user._id), username: user.username });
+// What other users see about a person: id, username, names and photo, so a
+// friend list can be rendered. NEVER the email — see User.toSummary().
+const PERSON_FIELDS = "username firstName lastName name avatar";
+
+const person = (user) => {
+  const summary = new User(user).toSummary();
+  return {
+    id: summary.id,
+    username: summary.username,
+    firstName: summary.firstName,
+    lastName: summary.lastName,
+    avatarUrl: summary.avatarUrl,
+  };
+};
 
 async function loadPeople(ids) {
-  const users = await User.find({ _id: { $in: ids } }).select("username").lean();
+  const users = await User.find({ _id: { $in: ids } })
+    .select(PERSON_FIELDS)
+    .lean();
   return new Map(users.map((user) => [String(user._id), user]));
 }
 
@@ -28,7 +42,7 @@ async function loadPeople(ids) {
 router.get("/", async (req, res) => {
   const ids = await getFriendIds(req.user._id);
   const users = await User.find({ _id: { $in: ids } })
-    .select("username")
+    .select(PERSON_FIELDS)
     .sort({ usernameLower: 1 })
     .lean();
 
@@ -70,7 +84,7 @@ router.get("/search", async (req, res) => {
     usernameLower: { $regex: escapeRegex(q.toLowerCase()) },
     _id: { $ne: me },
   })
-    .select("username")
+    .select(PERSON_FIELDS)
     .sort({ usernameLower: 1 })
     .limit(10)
     .lean();
@@ -99,7 +113,7 @@ router.post("/requests", async (req, res) => {
 
   if (userId === String(me)) throw new HttpError(400, "You cannot add yourself as a friend");
 
-  const target = await User.findById(userId).select("username").lean();
+  const target = await User.findById(userId).select(PERSON_FIELDS).lean();
   if (!target) throw new HttpError(404, "User not found");
 
   const existing = await Friendship.findOne({ pairKey: pairKeyFor(me, userId) });
@@ -131,7 +145,7 @@ router.patch("/requests/:id/accept", async (req, res) => {
   request.status = "accepted";
   await request.save();
 
-  const requester = await User.findById(request.requester).select("username").lean();
+  const requester = await User.findById(request.requester).select(PERSON_FIELDS).lean();
   res.json({ message: "You are now friends", friend: person(requester) });
 });
 

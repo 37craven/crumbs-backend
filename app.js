@@ -7,6 +7,7 @@ const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
 const healthRoutes = require("./routes/health");
 const authRoutes = require("./routes/auth");
+const crumbRoutes = require("./routes/crumbs");
 const collectionRoutes = require("./routes/collections");
 const widgetRoutes = require("./routes/widgets");
 const linkRoutes = require("./routes/links");
@@ -38,6 +39,7 @@ app.use(
 // 3. Routes
 app.use("/", healthRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/crumbs", crumbRoutes);
 app.use("/api/collections", collectionRoutes);
 app.use("/api/widgets", widgetRoutes);
 app.use("/api/links", linkRoutes);
