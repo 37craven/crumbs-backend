@@ -1,6 +1,5 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const mongoose = require("mongoose");
 const { z } = require("zod");
 const { rateLimit } = require("express-rate-limit");
 const User = require("../models/User");
@@ -9,18 +8,19 @@ const {
   clearAuthCookie,
   requireAuth,
 } = require("../middleware/auth");
+const { imageUploader } = require("../middleware/upload");
+const HttpError = require("../utils/httpError");
+const { parseOrThrow } = require("../validators/common");
+const {
+  usernameSchema,
+  updateProfileSchema,
+  changePasswordSchema,
+} = require("../validators/profile");
+const { getFriendIds } = require("../services/friends");
+const { publicUrl, removeStoredFiles } = require("../services/imageFiles");
+const { MAX_AVATAR_SIZE } = require("../config/uploads");
 
 const router = express.Router();
-
-const usernameSchema = z
-  .string()
-  .trim()
-  .min(3, "Username must be at least 3 characters")
-  .max(20, "Username must be at most 20 characters")
-  .regex(
-    /^[a-zA-Z0-9_]+$/,
-    "Username can only contain letters, numbers and underscores",
-  );
 
 const registerSchema = z.object({
   username: usernameSchema,
@@ -33,25 +33,6 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-const updateProfileSchema = z.object({
-  firstName: z.string().trim().max(50, "First name must be at most 50 characters"),
-  lastName: z.string().trim().max(50, "Last name must be at most 50 characters"),
-  username: usernameSchema,
-  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
-});
-
-const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Enter your current password"),
-  newPassword: z.string().min(8, "Password must be at least 8 characters"),
-});
-
-const AVATAR_MAX_BYTES = 1024 * 1024;
-
-const avatarBody = express.raw({
-  type: ["image/jpeg", "image/png", "image/webp"],
-  limit: AVATAR_MAX_BYTES,
-});
-
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -60,6 +41,8 @@ const authLimiter = rateLimit({
   message: { message: "Too many attempts, try again later" },
 });
 
+// Password changes get their own window so a burst of failed sign-ins cannot
+// lock a real user out of changing their password.
 const passwordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -68,38 +51,18 @@ const passwordLimiter = rateLimit({
   message: { message: "Too many attempts, try again later" },
 });
 
-function sniffImageType(buf) {
-  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
-    return "image/jpeg";
-  }
-  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  if (buf.length > 8 && buf.subarray(0, 8).equals(pngSignature)) {
-    return "image/png";
-  }
-  if (
-    buf.length > 12 &&
-    buf.toString("ascii", 0, 4) === "RIFF" &&
-    buf.toString("ascii", 8, 12) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
-
-function receiveAvatar(req, res, next) {
-  avatarBody(req, res, (error) => {
-    if (error?.type === "entity.too.large") {
-      return res.status(413).json({ message: "Image is too large (1 MB max)" });
-    }
-    next(error);
-  });
-}
-
 function validationError(res, error) {
   return res.status(400).json({
     message: "Validation failed",
     fields: error.flatten().fieldErrors,
   });
+}
+
+// toPublic() cannot count friends, so it is added here, once, for the routes
+// that return the signed-in user.
+async function publicUser(user) {
+  const friendIds = await getFriendIds(user._id);
+  return user.toPublic({ friendsCount: friendIds.length });
 }
 
 router.post("/register", authLimiter, async (req, res) => {
@@ -149,24 +112,28 @@ router.post("/logout", (req, res) => {
   res.status(204).send();
 });
 
-router.get("/me", requireAuth, (req, res) => {
-  res.json({ user: req.user.toPublic() });
+router.get("/me", requireAuth, async (req, res) => {
+  res.json({ user: await publicUser(req.user) });
 });
 
+// PATCH /api/auth/me — change first name, last name, username and email. Every
+// field is sent each time. `409` names the fields another account already has.
 router.patch("/me", requireAuth, async (req, res) => {
-  const parsed = updateProfileSchema.safeParse(req.body);
-  if (!parsed.success) return validationError(res, parsed.error);
-
-  const { firstName, lastName, username, email } = parsed.data;
+  const { firstName, lastName, username, email } = parseOrThrow(
+    updateProfileSchema,
+    req.body,
+  );
   const usernameLower = username.toLowerCase();
 
-  const conflicts = await User.find({
+  const taken = await User.find({
     _id: { $ne: req.user._id },
     $or: [{ email }, { usernameLower }],
-  }).lean();
+  })
+    .select("email usernameLower")
+    .lean();
 
   const fields = {};
-  for (const other of conflicts) {
+  for (const other of taken) {
     if (other.email === email) {
       fields.email = ["An account with that email already exists"];
     }
@@ -175,46 +142,34 @@ router.patch("/me", requireAuth, async (req, res) => {
     }
   }
   if (Object.keys(fields).length > 0) {
-    return res
-      .status(409)
-      .json({ message: "Email or username already in use", fields });
+    throw new HttpError(409, "Email or username already in use", fields);
   }
 
-  req.user.set({ firstName, lastName, username, email, name: undefined });
-  try {
-    await req.user.save();
-  } catch (error) {
-    if (error.code === 11000) {
-      return res
-        .status(409)
-        .json({ message: "Email or username already in use" });
-    }
-    throw error;
-  }
+  req.user.set({ firstName, lastName, username, email });
+  await req.user.save();
 
-  res.json({ user: req.user.toPublic() });
+  res.json({ user: await publicUser(req.user) });
 });
 
+// POST /api/auth/password — body { currentPassword, newPassword }.
+// `400` when the current password is wrong, `204` on success.
 router.post("/password", requireAuth, passwordLimiter, async (req, res) => {
-  const parsed = changePasswordSchema.safeParse(req.body);
-  if (!parsed.success) return validationError(res, parsed.error);
-
-  const { currentPassword, newPassword } = parsed.data;
+  const { currentPassword, newPassword } = parseOrThrow(
+    changePasswordSchema,
+    req.body,
+  );
 
   const user = await User.findById(req.user._id).select("+password");
   const valid = user && (await bcrypt.compare(currentPassword, user.password));
 
   if (!valid) {
-    return res.status(400).json({
-      message: "Current password is incorrect",
-      fields: { currentPassword: ["Current password is incorrect"] },
+    throw new HttpError(400, "Current password is incorrect", {
+      currentPassword: ["Current password is incorrect"],
     });
   }
-
   if (currentPassword === newPassword) {
-    return res.status(400).json({
-      message: "Choose a different password",
-      fields: { newPassword: ["Choose a password you are not already using"] },
+    throw new HttpError(400, "Choose a different password", {
+      newPassword: ["Choose a password you are not already using"],
     });
   }
 
@@ -224,58 +179,42 @@ router.post("/password", requireAuth, passwordLimiter, async (req, res) => {
   res.status(204).send();
 });
 
-router.put("/avatar", requireAuth, receiveAvatar, async (req, res) => {
-  const image = Buffer.isBuffer(req.body) ? req.body : null;
-  const contentType = image && sniffImageType(image);
-
-  if (!contentType) {
-    return res
-      .status(400)
-      .json({ message: "Upload a JPEG, PNG or WebP image" });
+// PUT /api/auth/avatar — set the profile photo (multipart/form-data, field
+// "image", up to 1 MB). Uploading again replaces it and deletes the old file.
+router.put("/avatar", requireAuth, imageUploader(MAX_AVATAR_SIZE), async (req, res) => {
+  if (!req.file) {
+    throw new HttpError(
+      400,
+      'No image received. Send it as multipart/form-data in the field "image".',
+    );
   }
 
-  req.user.avatarData = image;
-  req.user.avatarContentType = contentType;
-  req.user.avatarUpdatedAt = new Date();
+  const previous = req.user.avatar?.filename;
+
+  req.user.avatar = {
+    filename: req.file.filename,
+    url: publicUrl(req.file.filename),
+    mimeType: req.file.mimetype,
+    size: req.file.size,
+    uploadedAt: new Date(),
+  };
   await req.user.save();
 
-  res.json({ user: req.user.toPublic() });
+  if (previous) await removeStoredFiles([previous]); // the replaced photo
+
+  res.json({ user: await publicUser(req.user) });
 });
 
+// DELETE /api/auth/avatar — go back to the initial. The photo file goes too.
 router.delete("/avatar", requireAuth, async (req, res) => {
-  await User.updateOne(
-    { _id: req.user._id },
-    { $unset: { avatarData: 1, avatarContentType: 1, avatarUpdatedAt: 1 } },
-  );
+  const previous = req.user.avatar?.filename;
 
-  const user = await User.findById(req.user._id);
-  res.json({ user: user.toPublic() });
-});
+  req.user.avatar = null;
+  await req.user.save();
 
-router.get("/friends", requireAuth, async (req, res) => {
-  const friends = await User.find({ _id: { $in: req.user.friends } }).sort({
-    usernameLower: 1,
-  });
+  if (previous) await removeStoredFiles([previous]);
 
-  res.json({ friends: friends.map((friend) => friend.toSummary()) });
-});
-
-router.get("/avatar/:id", async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) {
-    return res.status(404).end();
-  }
-
-  const user = await User.findById(req.params.id).select("+avatarData");
-  if (!user?.avatarData) {
-    return res.status(404).end();
-  }
-
-  res.set({
-    "Content-Type": user.avatarContentType,
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "X-Content-Type-Options": "nosniff",
-  });
-  res.send(Buffer.from(user.avatarData));
+  res.json({ user: await publicUser(req.user) });
 });
 
 module.exports = router;

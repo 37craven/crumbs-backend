@@ -2,8 +2,21 @@ const User = require("../models/User");
 const { todayInTimezone } = require("../utils/dates");
 const { serializeCollection, serializeWidget, sortWidgets } = require("./serializers");
 
+// What a collection card shows about a person. Same shape as
+// routes/friends.js's person(): id, username, names and photo, never the email.
+function personSummary(user) {
+  const summary = new User(user).toSummary();
+  return {
+    id: summary.id,
+    username: summary.username,
+    firstName: summary.firstName,
+    lastName: summary.lastName,
+    avatarUrl: summary.avatarUrl,
+  };
+}
+
 // Everything serializeCollection needs besides the collection itself: today's date, who is
-// asking, and the usernames of everyone who appears on these collections (one query
+// asking, and the details of everyone who appears on these collections (one query
 // for all of them, not one per collection).
 async function collectionContext(collections, viewerId) {
   const ids = new Set();
@@ -13,13 +26,15 @@ async function collectionContext(collections, viewerId) {
   }
 
   const users = ids.size
-    ? await User.find({ _id: { $in: [...ids] } }).select("username").lean()
+    ? await User.find({ _id: { $in: [...ids] } })
+        .select("username firstName lastName name avatar")
+        .lean()
     : [];
 
   return {
     today: todayInTimezone(),
     viewerId: String(viewerId),
-    people: new Map(users.map((u) => [String(u._id), { id: String(u._id), username: u.username }])),
+    people: new Map(users.map((u) => [String(u._id), personSummary(u)])),
   };
 }
 

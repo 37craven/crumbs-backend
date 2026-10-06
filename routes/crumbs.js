@@ -1,72 +1,79 @@
 const express = require("express");
-const mongoose = require("mongoose");
-const { z } = require("zod");
 const Crumb = require("../models/Crumb");
 const { requireAuth } = require("../middleware/auth");
-const { rawImage, sniffImageType } = require("../middleware/image");
+const { uploadImage } = require("../middleware/upload");
+const { validateObjectIdParam } = require("../middleware/validateObjectId");
+const HttpError = require("../utils/httpError");
+const { parseOrThrow } = require("../validators/common");
+const { createCrumbSchema } = require("../validators/crumb");
+const { createCrumb, removeFileUnlessShared } = require("../services/crumbs");
 
 const router = express.Router();
 
-const receiveImage = rawImage(3 * 1024 * 1024, "Image is too large (3 MB max)");
+// Every crumb route belongs to the signed-in user alone.
+router.use(requireAuth);
+router.param("id", validateObjectIdParam); // reject malformed ids with a 400
 
-const captionSchema = z
-  .string()
-  .trim()
-  .max(60, "Caption must be at most 60 characters");
+// GET /api/crumbs — my crumbs, newest first.
+router.get("/", async (req, res) => {
+  const crumbs = await Crumb.find({ user: req.user._id })
+    .sort({ createdAt: -1 })
+    .lean();
 
-router.get("/", requireAuth, async (req, res) => {
-  const crumbs = await Crumb.find({ user: req.user._id }).sort({
-    createdAt: -1,
-  });
-
-  res.json({ crumbs: crumbs.map((crumb) => crumb.toPublic()) });
+  res.json({ crumbs: crumbs.map((crumb) => new Crumb(crumb).toPublic()) });
 });
 
-router.post("/", requireAuth, receiveImage, async (req, res) => {
-  const image = Buffer.isBuffer(req.body) ? req.body : null;
-  const contentType = image && sniffImageType(image);
+// POST /api/crumbs — upload a photo (multipart/form-data, field "image") with
+// an optional `caption` and an optional `collectionId`. When a collection is
+// given, the same picture also lands in that collection as an image widget.
+//
+// The file is on disk before this handler runs, so a failure deletes it again.
+router.post("/", uploadImage, async (req, res) => {
+  const file = req.file;
+  // Multer has already written the file by the time this runs, so any failure
+  // from here on — a bad caption, a refused collection, a database error —
+  // has to take the file with it.
+  let kept = false;
 
-  if (!contentType) {
-    return res
-      .status(400)
-      .json({ message: "Upload a JPEG, PNG or WebP image" });
+  try {
+    if (!file) {
+      throw new HttpError(
+        400,
+        'No image received. Send it as multipart/form-data in the field "image".',
+      );
+    }
+
+    const { caption, collectionId } = parseOrThrow(createCrumbSchema, req.body);
+
+    const { crumb, widget, copyError } = await createCrumb(req.user, file, {
+      caption,
+      collectionId: collectionId ?? null,
+    });
+    kept = true;
+
+    res.status(201).json({
+      crumb: crumb.toPublic(),
+      // Set when the crumb was saved but the collection copy was refused, so
+      // the client can say so instead of silently losing the collection.
+      collectionCopyError: copyError ? copyError.message : null,
+      filedInCollection: Boolean(widget),
+    });
+  } catch (err) {
+    if (file && !kept) await removeFileUnlessShared(file.filename);
+    throw err;
   }
-
-  const rawCaption =
-    typeof req.query.caption === "string" ? req.query.caption : "";
-  const caption = captionSchema.safeParse(rawCaption);
-
-  if (!caption.success) {
-    const message = caption.error.issues[0].message;
-    return res.status(400).json({ message, fields: { caption: [message] } });
-  }
-
-  const crumb = await Crumb.create({
-    user: req.user._id,
-    imageData: image,
-    contentType,
-    caption: caption.data,
-  });
-
-  res.status(201).json({ crumb: crumb.toPublic() });
 });
 
-router.get("/:id/image", async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) {
-    return res.status(404).end();
-  }
+// DELETE /api/crumbs/:id — remove one of my crumbs. A copy filed in a
+// collection keeps its own widget and the shared file on disk.
+router.delete("/:id", async (req, res) => {
+  const crumb = await Crumb.findOne({ _id: req.params.id, user: req.user._id });
+  if (!crumb) throw new HttpError(404, "Crumb not found");
 
-  const crumb = await Crumb.findById(req.params.id).select("+imageData");
-  if (!crumb) {
-    return res.status(404).end();
-  }
+  await Crumb.deleteOne({ _id: crumb._id });
+  await removeFileUnlessShared(crumb.filename);
 
-  res.set({
-    "Content-Type": crumb.contentType,
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "X-Content-Type-Options": "nosniff",
-  });
-  res.send(Buffer.from(crumb.imageData));
+  res.json({ message: "Crumb deleted", id: crumb._id.toString() });
 });
 
 module.exports = router;
