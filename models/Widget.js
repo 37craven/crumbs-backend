@@ -17,8 +17,10 @@ const MAX_CHECKLIST_ITEMS = 50;
 // validation. Querying the base model returns the right kind of document.
 const widgetSchema = new Schema(
   {
-    event: { type: Schema.Types.ObjectId, ref: "Event", required: true },
-    // The _id of one of the event's rows (event.rows).
+    // NOT `collection`: Mongoose reserves that name on documents. `collectionId`
+    // is what the API calls it too.
+    collectionId: { type: Schema.Types.ObjectId, ref: "Collection", required: true },
+    // The _id of one of the collection's rows (collection.rows).
     row: { type: Schema.Types.ObjectId, required: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     // Position inside the row: 0 is the leftmost widget.
@@ -27,7 +29,7 @@ const widgetSchema = new Schema(
   { discriminatorKey: "type", timestamps: true },
 );
 
-widgetSchema.index({ event: 1, row: 1, order: 1 });
+widgetSchema.index({ collectionId: 1, row: 1, order: 1 });
 
 const Widget = mongoose.model("Widget", widgetSchema);
 

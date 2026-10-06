@@ -1,11 +1,11 @@
-// End-to-end check of the events, widgets, friends and sharing API against a
+// End-to-end check of the collections, widgets, friends and sharing API against a
 // RUNNING server.
 //
 //   1. npm run dev            (in one terminal, pointed at the crumbs_dev database)
 //   2. npm run smoke          (in another)
 //
 // It registers two throwaway accounts (Ann and Ben), makes them friends, and
-// walks through creating, sharing, editing and deleting an event with rows and widgets. It prints
+// walks through creating, sharing, editing and deleting a collection with rows and widgets. It prints
 // PASS or FAIL for every step and exits with code 1 if anything failed.
 // Leftover smoke accounts: npm run db:reset.
 
@@ -56,7 +56,7 @@ async function main() {
   check("search finds Ben, relationship none", found.json?.users?.[0]?.id === ben.id && found.json.users[0].relationship === "none");
   check("search needs 2+ characters -> 400", (await call(ann, "GET", "/api/friends/search?q=a")).status === 400);
 
-  const early = await call(ann, "POST", "/api/events", { json: { title: "Too early", collaborators: [ben.id] } });
+  const early = await call(ann, "POST", "/api/collections", { json: { title: "Too early", collaborators: [ben.id] } });
   check("sharing with a non-friend -> 400", early.status === 400 && early.json?.fields?.collaborators);
 
   check("cannot friend yourself -> 400", (await call(ann, "POST", "/api/friends/requests", { json: { userId: ann.id } })).status === 400);
@@ -74,44 +74,44 @@ async function main() {
     (await call(ann, "GET", "/api/friends")).json?.friends?.[0]?.id === ben.id &&
     (await call(ben, "GET", "/api/friends")).json?.friends?.[0]?.id === ann.id);
 
-  // ---- A new event starts with one empty row ----------------------------------
-  const blank = await call(ann, "POST", "/api/events", { json: {} });
-  const blankId = blank.json?.event?.id;
-  check("opening a blank event -> 201, status new, one empty row", blank.status === 201 && blank.json.event.status === "new" && blank.json.event.rows.length === 1, `status ${blank.status}`);
-  check("a blank event is not listed in Collections", !(await call(ann, "GET", "/api/events")).json?.events?.some((e) => e.id === blankId));
-  const promoted = await call(ann, "PATCH", `/api/events/${blankId}`, { json: { title: `Titled ${tag}` } });
-  check("adding a title turns a blank event into a draft", promoted.json?.event?.status === "draft");
-  check("clearing the title of an edited event -> 400", (await call(ann, "PATCH", `/api/events/${blankId}`, { json: { title: "" } })).status === 400);
-  check("a blank event the user leaves is deleted -> 200", (await call(ann, "DELETE", `/api/events/${(await call(ann, "POST", "/api/events", { json: {} })).json.event.id}`)).status === 200);
-  await call(ann, "DELETE", `/api/events/${blankId}`);
+  // ---- A new collection starts with one empty row ----------------------------------
+  const blank = await call(ann, "POST", "/api/collections", { json: {} });
+  const blankId = blank.json?.collection?.id;
+  check("opening a blank collection -> 201, status new, one empty row", blank.status === 201 && blank.json.collection.status === "new" && blank.json.collection.rows.length === 1, `status ${blank.status}`);
+  check("a blank collection is not listed in Collections", !(await call(ann, "GET", "/api/collections")).json?.collections?.some((e) => e.id === blankId));
+  const promoted = await call(ann, "PATCH", `/api/collections/${blankId}`, { json: { title: `Titled ${tag}` } });
+  check("adding a title turns a blank collection into a draft", promoted.json?.collection?.status === "draft");
+  check("clearing the title of an edited collection -> 400", (await call(ann, "PATCH", `/api/collections/${blankId}`, { json: { title: "" } })).status === 400);
+  check("a blank collection the user leaves is deleted -> 200", (await call(ann, "DELETE", `/api/collections/${(await call(ann, "POST", "/api/collections", { json: {} })).json.collection.id}`)).status === 200);
+  await call(ann, "DELETE", `/api/collections/${blankId}`);
 
-  const created = await call(ann, "POST", "/api/events", {
+  const created = await call(ann, "POST", "/api/collections", {
     json: { title: `Smoke test ${tag}`, tags: ["Smoke", "smoke", "Test"], collaborators: [ben.id] },
   });
-  check("create a shared event -> 201", created.status === 201, `status ${created.status}: ${JSON.stringify(created.json)}`);
+  check("create a shared collection -> 201", created.status === 201, `status ${created.status}: ${JSON.stringify(created.json)}`);
   if (created.status !== 201) return;
 
-  const event = created.json.event;
-  check("it starts with ONE empty row and no widgets", event.rows.length === 1 && created.json.widgets.length === 0, JSON.stringify(event.rows));
-  check("tags are lowercased and de-duplicated", event.tags.join() === "smoke,test");
-  check("a draft can only move to planned or archived (no done)", event.nextStatuses.join() === "planned,archived", event.nextStatuses.join());
-  check("Ann is the owner, Ben a collaborator", event.role === "owner" && event.owner.id === ann.id && event.collaborators[0]?.id === ben.id);
-  check("the event appears in Ben's Collections", (await call(ben, "GET", "/api/events")).json?.events?.some((e) => e.id === event.id));
-  check("Ben can rename the event", (await call(ben, "PATCH", `/api/events/${event.id}`, { json: { title: `Smoke renamed ${tag}` } })).status === 200);
+  const collection = created.json.collection;
+  check("it starts with ONE empty row and no widgets", collection.rows.length === 1 && created.json.widgets.length === 0, JSON.stringify(collection.rows));
+  check("tags are lowercased and de-duplicated", collection.tags.join() === "smoke,test");
+  check("a draft can only move to planned or archived (no done)", collection.nextStatuses.join() === "planned,archived", collection.nextStatuses.join());
+  check("Ann is the owner, Ben a collaborator", collection.role === "owner" && collection.owner.id === ann.id && collection.collaborators[0]?.id === ben.id);
+  check("the collection appears in Ben's Collections", (await call(ben, "GET", "/api/collections")).json?.collections?.some((e) => e.id === collection.id));
+  check("Ben can rename the collection", (await call(ben, "PATCH", `/api/collections/${collection.id}`, { json: { title: `Smoke renamed ${tag}` } })).status === 200);
 
   // ---- Rows -----------------------------------------------------------------------
-  const row1 = event.rows[0].id;
-  const rowsUrl = `/api/events/${event.id}/rows`;
+  const row1 = collection.rows[0].id;
+  const rowsUrl = `/api/collections/${collection.id}/rows`;
   const addRow = await call(ann, "POST", rowsUrl, { json: { name: "Photos" } });
-  check("add a second row -> 201", addRow.status === 201 && addRow.json.event.rows.length === 2);
-  const row2 = addRow.json?.event?.rows?.[1]?.id;
+  check("add a second row -> 201", addRow.status === 201 && addRow.json.collection.rows.length === 2);
+  const row2 = addRow.json?.collection?.rows?.[1]?.id;
   const renamed = await call(ben, "PATCH", `${rowsUrl}/${row1}`, { json: { name: "Plan" } });
-  check("Ben renames the first row", renamed.status === 200 && renamed.json.event.rows[0].name === "Plan");
+  check("Ben renames the first row", renamed.status === 200 && renamed.json.collection.rows[0].name === "Plan");
   check("a row name over 40 characters -> 400", (await call(ann, "PATCH", `${rowsUrl}/${row1}`, { json: { name: "x".repeat(41) } })).status === 400);
   check("an unknown row -> 404", (await call(ann, "PATCH", `${rowsUrl}/${NO_SUCH_ID}`, { json: { name: "x" } })).status === 404);
 
   const flipped = await call(ann, "PATCH", `${rowsUrl}/order`, { json: { order: [row2, row1] } });
-  check("reorder the rows", flipped.status === 200 && flipped.json.event.rows.map((r) => r.id).join() === `${row2},${row1}`);
+  check("reorder the rows", flipped.status === 200 && flipped.json.collection.rows.map((r) => r.id).join() === `${row2},${row1}`);
   check("reorder with a missing id -> 400", (await call(ann, "PATCH", `${rowsUrl}/order`, { json: { order: [row2] } })).status === 400);
   await call(ann, "PATCH", `${rowsUrl}/order`, { json: { order: [row1, row2] } }); // back to normal
 
@@ -132,12 +132,12 @@ async function main() {
   check("a private link address -> 400", (await add(ann, row1, { type: "link", url: "http://127.0.0.1:3000" })).status === 400);
   check("adding to an unknown row -> 404", (await add(ann, NO_SUCH_ID, { type: "notes" })).status === 404);
 
-  const listed = await call(ann, "GET", `/api/events/${event.id}`);
-  const summary = listed.json?.event?.summary;
+  const listed = await call(ann, "GET", `/api/collections/${collection.id}`);
+  const summary = listed.json?.collection?.summary;
   check("widgets come back row by row, left to right", listed.json?.widgets?.map((w) => w.type).join() === "notes,notes,date,date,link,image,image", listed.json?.widgets?.map((w) => w.type).join());
   check("every widget says which row it is in", listed.json?.widgets?.slice(0, 5).every((w) => w.rowId === row1) && listed.json.widgets.slice(5).every((w) => w.rowId === row2));
-  check("the event date is the EARLIEST date widget", summary?.eventDate === inAWeek && summary.eventDates.length === 2);
-  check("the card has a note tile with the text", listed.json?.event?.summary?.tiles?.find((t) => t.type === "note")?.text === "plain text");
+  check("the collection date is the EARLIEST date widget", summary?.collectionDate === inAWeek && summary.collectionDates.length === 2);
+  check("the card has a note tile with the text", listed.json?.collection?.summary?.tiles?.find((t) => t.type === "note")?.text === "plain text");
 
   // ---- Notes: text AND checklist together ------------------------------------------
   const notes = notesA.json.widget;
@@ -145,7 +145,7 @@ async function main() {
   check("editing the text keeps the checklist", textOnly.json?.widget?.body === "edited text" && textOnly.json.widget.checklist.length === 2);
   const tick = await call(ben, "PATCH", `/api/widgets/${notes.id}/checklist/${notes.checklist[1].id}`, { json: { done: true } });
   check("Ben ticks a checklist item", tick.status === 200 && tick.json.widget.checklist[1].done === true);
-  check("there is no checklist progress report", tick.json?.widget?.checklistPercent === undefined && tick.json?.event?.summary?.checklistPercent === undefined);
+  check("there is no checklist progress report", tick.json?.widget?.checklistPercent === undefined && tick.json?.collection?.summary?.checklistPercent === undefined);
   check("a PATCH body must match the widget type -> 400", (await call(ann, "PATCH", `/api/widgets/${date1.json.widget.id}`, { json: { body: "x" } })).status === 400);
 
   // ---- One picture per image widget ----------------------------------------------------
@@ -154,7 +154,7 @@ async function main() {
   const up1 = await call(ben, "POST", `/api/widgets/${imageId}/image`, { form: form("one.png") });
   const url1 = up1.json?.widget?.image?.url;
   check("Ben puts a picture in an image widget -> 201", up1.status === 201 && Boolean(url1), `status ${up1.status}`);
-  check("the event card gets an image tile and counts 1 memory", up1.json?.event?.summary?.tiles?.some((t) => t.type === "image" && t.url === url1) && up1.json.event.summary.imageCount === 1);
+  check("the collection card gets an image tile and counts 1 memory", up1.json?.collection?.summary?.tiles?.some((t) => t.type === "image" && t.url === url1) && up1.json.collection.summary.imageCount === 1);
   check("the picture is served", (await fetch(BASE + url1)).status === 200);
 
   const up2 = await call(ann, "POST", `/api/widgets/${imageId}/image`, { form: form("two.png") });
@@ -168,7 +168,7 @@ async function main() {
 
   const url2 = up2.json.widget.image.url;
   const emptied = await call(ann, "DELETE", `/api/widgets/${imageId}/image`);
-  check("remove the picture: the widget stays but is empty", emptied.status === 200 && emptied.json.widget.image === null && emptied.json.event.summary.imageCount === 0);
+  check("remove the picture: the widget stays but is empty", emptied.status === 200 && emptied.json.widget.image === null && emptied.json.collection.summary.imageCount === 0);
   check("its file is gone", (await fetch(BASE + url2)).status === 404);
   const up3 = await call(ann, "POST", `/api/widgets/${imageId}/image`, { form: form("three.png") });
   const url3 = up3.json?.widget?.image?.url;
@@ -180,10 +180,10 @@ async function main() {
   check("reorder the widgets of a row", reorder.status === 200 && reorder.json.widgets.filter((w) => w.rowId === row1).map((w) => w.id).join() === reversed.join());
   check("reorder with a missing id -> 400", (await call(ann, "PATCH", `${rowsUrl}/${row1}/widgets/order`, { json: { order: reversed.slice(1) } })).status === 400);
   const goneLink = await call(ben, "DELETE", `/api/widgets/${link1.json.widget.id}`);
-  check("delete a link widget -> 200", goneLink.status === 200 && goneLink.json.event.summary.linkCount === 0);
+  check("delete a link widget -> 200", goneLink.status === 200 && goneLink.json.collection.summary.linkCount === 0);
 
   // ---- Search, scope and upcoming ----------------------------------------------------------
-  const hit = async (who, qs) => (await call(who, "GET", `/api/events/search?${qs}`)).json?.events?.some((e) => e.id === event.id);
+  const hit = async (who, qs) => (await call(who, "GET", `/api/collections/search?${qs}`)).json?.collections?.some((e) => e.id === collection.id);
   check("find it by text in a notes widget", await hit(ann, "q=edited"));
   check("find it by a checklist item", await hit(ann, "q=third"));
   check("find it by a row name", await hit(ann, "q=photos"));
@@ -196,18 +196,18 @@ async function main() {
   check("scope=shared: Ben yes, Ann no", (await hit(ben, "scope=shared")) && !(await hit(ann, "scope=shared")));
   check("filter has=notes,date,image", await hit(ann, "has=notes,date,image"));
   check("a date range finds the LATER of its two dates", await hit(ann, `dateFrom=${inTwoWeeks}&dateTo=${inTwoWeeks}`));
-  check("a range with no date of this event finds nothing", !(await hit(ann, "dateFrom=2000-01-01&dateTo=2000-12-31")));
+  check("a range with no date of this collection finds nothing", !(await hit(ann, "dateFrom=2000-01-01&dateTo=2000-12-31")));
   check("non-matching text excludes it", !(await hit(ann, "q=zzzznomatch")));
   for (const sort of ["recent", "newest", "oldest", "title", "date_asc", "date_desc"]) {
-    check(`sort=${sort} works`, (await call(ann, "GET", `/api/events/search?sort=${sort}`)).status === 200);
+    check(`sort=${sort} works`, (await call(ann, "GET", `/api/collections/search?sort=${sort}`)).status === 200);
   }
-  check("bad filter -> 400", (await call(ann, "GET", "/api/events/search?scope=everyone")).status === 400);
+  check("bad filter -> 400", (await call(ann, "GET", "/api/collections/search?scope=everyone")).status === 400);
   check("upcoming lists it for both of them",
-    (await call(ann, "GET", "/api/events/upcoming?days=30")).json?.events?.some((e) => e.id === event.id) &&
-    (await call(ben, "GET", "/api/events/upcoming?days=30")).json?.events?.some((e) => e.id === event.id));
+    (await call(ann, "GET", "/api/collections/upcoming?days=30")).json?.collections?.some((e) => e.id === collection.id) &&
+    (await call(ben, "GET", "/api/collections/upcoming?days=30")).json?.collections?.some((e) => e.id === collection.id));
 
   // ---- Status rules (anyone who can edit may change status) ---------------------------------
-  const statusOf = (who, status) => call(who, "PATCH", `/api/events/${event.id}/status`, { json: { status } });
+  const statusOf = (who, status) => call(who, "PATCH", `/api/collections/${collection.id}/status`, { json: { status } });
   check("draft -> done is refused (409)", (await statusOf(ann, "done")).status === 409);
   check("Ben can plan it (it has a date)", (await statusOf(ben, "planned")).status === 200);
   const blocked = await statusOf(ann, "done");
@@ -216,31 +216,31 @@ async function main() {
   check("planned -> done works once every checklist item is ticked", (await statusOf(ann, "done")).status === 200);
 
   // ---- Permissions ----------------------------------------------------------------------------------
-  check("Ben cannot delete the event -> 403", (await call(ben, "DELETE", `/api/events/${event.id}`)).status === 403);
-  check("Ben cannot add people -> 403", (await call(ben, "POST", `/api/events/${event.id}/collaborators`, { json: { userId: ann.id } })).status === 403);
-  check("Ann cannot add Ben twice -> 409", (await call(ann, "POST", `/api/events/${event.id}/collaborators`, { json: { userId: ben.id } })).status === 409);
-  check("Ann cannot be removed from her own event -> 400", (await call(ann, "DELETE", `/api/events/${event.id}/collaborators/${ann.id}`)).status === 400);
-  check("Ben leaves the event -> 200", (await call(ben, "DELETE", `/api/events/${event.id}/collaborators/${ben.id}`)).status === 200);
-  check("it disappears from Ben's account (404)", (await call(ben, "GET", `/api/events/${event.id}`)).status === 404);
+  check("Ben cannot delete the collection -> 403", (await call(ben, "DELETE", `/api/collections/${collection.id}`)).status === 403);
+  check("Ben cannot add people -> 403", (await call(ben, "POST", `/api/collections/${collection.id}/collaborators`, { json: { userId: ann.id } })).status === 403);
+  check("Ann cannot add Ben twice -> 409", (await call(ann, "POST", `/api/collections/${collection.id}/collaborators`, { json: { userId: ben.id } })).status === 409);
+  check("Ann cannot be removed from her own collection -> 400", (await call(ann, "DELETE", `/api/collections/${collection.id}/collaborators/${ann.id}`)).status === 400);
+  check("Ben leaves the collection -> 200", (await call(ben, "DELETE", `/api/collections/${collection.id}/collaborators/${ben.id}`)).status === 200);
+  check("it disappears from Ben's account (404)", (await call(ben, "GET", `/api/collections/${collection.id}`)).status === 404);
   check("Ben can no longer edit its rows or widgets (404)",
     (await call(ben, "PATCH", `${rowsUrl}/${row1}`, { json: { name: "x" } })).status === 404 &&
     (await call(ben, "PATCH", `/api/widgets/${notes.id}`, { json: { body: "x" } })).status === 404);
-  const readded = await call(ann, "POST", `/api/events/${event.id}/collaborators`, { json: { userId: ben.id } });
-  check("Ann adds Ben again -> 201", readded.status === 201 && readded.json.event.collaborators.length === 1);
-  check("Ann removes Ben -> 200", (await call(ann, "DELETE", `/api/events/${event.id}/collaborators/${ben.id}`)).status === 200);
+  const readded = await call(ann, "POST", `/api/collections/${collection.id}/collaborators`, { json: { userId: ben.id } });
+  check("Ann adds Ben again -> 201", readded.status === 201 && readded.json.collection.collaborators.length === 1);
+  check("Ann removes Ben -> 200", (await call(ann, "DELETE", `/api/collections/${collection.id}/collaborators/${ben.id}`)).status === 200);
 
   // ---- Deleting a row takes its widgets and pictures with it ------------------------------------
   const delRow = await call(ann, "DELETE", `${rowsUrl}/${row2}`);
   check("delete the second row -> 200, reports what went", delRow.status === 200 && delRow.json.deleted.widgets === 2 && delRow.json.deleted.images === 1, JSON.stringify(delRow.json?.deleted));
   check("the row's picture file is gone", (await fetch(BASE + url3)).status === 404);
-  check("one row is left", delRow.json?.event?.rows?.length === 1);
+  check("one row is left", delRow.json?.collection?.rows?.length === 1);
 
-  // ---- Delete the event ----------------------------------------------------------------------------
-  const del = await call(ann, "DELETE", `/api/events/${event.id}`);
-  check("Ann deletes the event -> 200 and it reports what was removed", del.status === 200 && del.json.deleted.widgets === 4, JSON.stringify(del.json)); // 2 notes + 2 dates are left: the link and the image row were deleted earlier
-  check("deleted event -> 404", (await call(ann, "GET", `/api/events/${event.id}`)).status === 404);
+  // ---- Delete the collection ----------------------------------------------------------------------------
+  const del = await call(ann, "DELETE", `/api/collections/${collection.id}`);
+  check("Ann deletes the collection -> 200 and it reports what was removed", del.status === 200 && del.json.deleted.widgets === 4, JSON.stringify(del.json)); // 2 notes + 2 dates are left: the link and the image row were deleted earlier
+  check("deleted collection -> 404", (await call(ann, "GET", `/api/collections/${collection.id}`)).status === 404);
   check("unknown id -> 404, malformed id -> 400",
-    (await call(ann, "GET", `/api/events/${NO_SUCH_ID}`)).status === 404 && (await call(ann, "GET", "/api/events/abc")).status === 400);
+    (await call(ann, "GET", `/api/collections/${NO_SUCH_ID}`)).status === 404 && (await call(ann, "GET", "/api/collections/abc")).status === 400);
 
   // ---- Unfriend --------------------------------------------------------------------------------------
   check("Ann removes Ben as a friend -> 200", (await call(ann, "DELETE", `/api/friends/${ben.id}`)).status === 200);

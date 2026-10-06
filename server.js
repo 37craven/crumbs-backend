@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 process.loadEnvFile();
 
 const { assertSafeDatabase } = require("./config/database");
-const Event = require("./models/Event");
+const Collection = require("./models/Collection");
 const Friendship = require("./models/Friendship");
 const { Widget } = require("./models/Widget");
 const app = require("./app");
@@ -23,7 +23,7 @@ mongoose
     console.log(`Connected to MongoDB (${dbName})`);
     // Makes the database indexes match the schemas, and drops indexes the
     // schemas no longer define. Needed once after the widget rules changed.
-    await Promise.all([Event.syncIndexes(), Widget.syncIndexes(), Friendship.syncIndexes()]);
+    await Promise.all([Collection.syncIndexes(), Widget.syncIndexes(), Friendship.syncIndexes()]);
     console.log("Indexes up to date");
   })
   .catch((err) => {

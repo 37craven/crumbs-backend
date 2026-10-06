@@ -1,5 +1,5 @@
 // Logs one line per request once the response has been sent:
-//   GET /api/events 200 12ms
+//   GET /api/collections 200 12ms
 function requestLogger(req, res, next) {
   const start = process.hrtime.bigint();
 

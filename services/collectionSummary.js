@@ -1,18 +1,18 @@
-const Event = require("../models/Event");
+const Collection = require("../models/Collection");
 const { Widget } = require("../models/Widget");
 const { dateSearchText } = require("../utils/dates");
 
 // Widgets in display order: row by row (top to bottom), then left to right.
-function inDisplayOrder(event, widgets) {
-  const rowIndex = new Map((event.rows ?? []).map((row, i) => [String(row._id), i]));
+function inDisplayOrder(collection, widgets) {
+  const rowIndex = new Map((collection.rows ?? []).map((row, i) => [String(row._id), i]));
   const position = (widget) => rowIndex.get(String(widget.row)) ?? Number.MAX_SAFE_INTEGER;
   return [...widgets].sort((a, b) => position(a) - position(b) || a.order - b.order);
 }
 
-// Builds the event's summary and its searchable text from the event and its
+// Builds the collection's summary and its searchable text from the collection and its
 // widgets. Pure function: no database access, so it is easy to test.
-function buildSummary(event, widgets) {
-  const sorted = inDisplayOrder(event, widgets);
+function buildSummary(collection, widgets) {
+  const sorted = inDisplayOrder(collection, widgets);
   const ofType = (type) => sorted.filter((w) => w.type === type);
 
   const notes = ofType("notes");
@@ -20,7 +20,7 @@ function buildSummary(event, widgets) {
   const images = ofType("image").filter((w) => w.image);
   const links = ofType("link").filter((w) => w.url);
 
-  const eventDates = dates.map((w) => w.date).sort(); // "YYYY-MM-DD" sorts as text
+  const collectionDates = dates.map((w) => w.date).sort(); // "YYYY-MM-DD" sorts as text
 
   // What the Collections card needs: a few notes, pictures and links.
   const noteExcerpts = notes
@@ -30,8 +30,8 @@ function buildSummary(event, widgets) {
     .slice(0, 3);
 
   const summary = {
-    eventDate: eventDates[0] ?? null,
-    eventDates,
+    collectionDate: collectionDates[0] ?? null,
+    collectionDates,
     noteExcerpts,
     openChecklistItems: notes.reduce(
       (total, w) => total + (w.checklist ?? []).filter((item) => !item.done).length,
@@ -50,10 +50,10 @@ function buildSummary(event, widgets) {
 
   // One lowercase string the search box can match against.
   const searchText = [
-    event.title,
-    event.description,
-    ...(event.tags ?? []),
-    ...(event.rows ?? []).map((row) => row.name),
+    collection.title,
+    collection.description,
+    ...(collection.tags ?? []),
+    ...(collection.rows ?? []).map((row) => row.name),
     ...notes.flatMap((w) => [w.body, ...(w.checklist ?? []).map((item) => item.text)]),
     ...dates.flatMap((w) => [dateSearchText(w.date), w.label]),
     ...links.flatMap((w) => [w.url, w.preview?.title, w.preview?.siteName]),
@@ -67,31 +67,31 @@ function buildSummary(event, widgets) {
   return { summary, searchText };
 }
 
-// Recomputes and saves an event's summary. Call it after ANY change to the
-// event's title/description/tags/rows or to any of its widgets.
-// Returns the updated event (plain object), or null if the event is gone.
-async function refreshEventSummary(eventId) {
-  const [event, widgets] = await Promise.all([
-    Event.findById(eventId).lean(),
-    Widget.find({ event: eventId }).lean(),
+// Recomputes and saves a collection's summary. Call it after ANY change to the
+// collection's title/description/tags/rows or to any of its widgets.
+// Returns the updated collection (plain object), or null if the collection is gone.
+async function refreshCollectionSummary(collectionId) {
+  const [collection, widgets] = await Promise.all([
+    Collection.findById(collectionId).lean(),
+    Widget.find({ collectionId: collectionId }).lean(),
   ]);
-  if (!event) return null;
+  if (!collection) return null;
 
-  const { summary, searchText } = buildSummary(event, widgets);
+  const { summary, searchText } = buildSummary(collection, widgets);
 
-  // A blank "new" event becomes a draft the moment anything is added to it.
+  // A blank "new" collection becomes a draft the moment anything is added to it.
   const hasContent = Boolean(
-    event.title?.trim() || event.description?.trim() || (event.tags ?? []).length || widgets.length,
+    collection.title?.trim() || collection.description?.trim() || (collection.tags ?? []).length || widgets.length,
   );
-  const status = event.status === "new" && hasContent ? "draft" : event.status;
+  const status = collection.status === "new" && hasContent ? "draft" : collection.status;
 
-  // This write also bumps `updatedAt`, so editing a widget moves the event to
+  // This write also bumps `updatedAt`, so editing a widget moves the collection to
   // the top of "recently edited" for everyone it is shared with.
-  return Event.findByIdAndUpdate(
-    eventId,
+  return Collection.findByIdAndUpdate(
+    collectionId,
     { $set: { summary, searchText, status } },
     { new: true },
   ).lean();
 }
 
-module.exports = { buildSummary, refreshEventSummary, inDisplayOrder };
+module.exports = { buildSummary, refreshCollectionSummary, inDisplayOrder };

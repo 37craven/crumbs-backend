@@ -1,11 +1,11 @@
-// Status rules for an event. Anyone who can edit the event may change its status.
+// Status rules for a collection. Anyone who can edit the collection may change its status.
 //
 //   draft ──► planned ──► done
 //     │          │          │
 //     └──────────┴──► archived ──► (restore) draft
 //
 // Moves not listed here are refused. Two extra rules apply:
-//   - To become "planned", the event needs a date.
+//   - To become "planned", the collection needs a date.
 //   - To become "done", a checklist in use must be fully ticked.
 //     (A notes widget set to plain notes has no checklist, so it never blocks.)
 
@@ -18,19 +18,19 @@ const ALLOWED_TRANSITIONS = {
 };
 
 // Returns null when the move is allowed, or a message explaining why not.
-function checkTransition(event, nextStatus) {
-  if (event.status === nextStatus) {
-    return `This event is already ${nextStatus}`;
+function checkTransition(collection, nextStatus) {
+  if (collection.status === nextStatus) {
+    return `This collection is already ${nextStatus}`;
   }
 
-  if (!ALLOWED_TRANSITIONS[event.status]?.includes(nextStatus)) {
-    return `An event that is ${event.status} cannot move to ${nextStatus}`;
+  if (!ALLOWED_TRANSITIONS[collection.status]?.includes(nextStatus)) {
+    return `A collection that is ${collection.status} cannot move to ${nextStatus}`;
   }
 
-  const summary = event.summary ?? {};
+  const summary = collection.summary ?? {};
 
-  if (nextStatus === "planned" && !summary.eventDate) {
-    return "Add a date to this event before planning it";
+  if (nextStatus === "planned" && !summary.collectionDate) {
+    return "Add a date to this collection before planning it";
   }
 
   if (nextStatus === "done") {

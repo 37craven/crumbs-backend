@@ -1,5 +1,5 @@
 const { z } = require("zod");
-const { EVENT_STATUSES } = require("../models/Event");
+const { COLLECTION_STATUSES } = require("../models/Collection");
 const { WIDGET_TYPES } = require("../models/Widget");
 const { dateString } = require("./common");
 
@@ -24,7 +24,7 @@ const searchQuerySchema = z
   .object({
     q: z.string().trim().max(100, "Search text is too long").default(""),
     scope: z.enum(["all", "mine", "shared"]).default("all"),
-    status: commaList(z.enum(EVENT_STATUSES)),
+    status: commaList(z.enum(COLLECTION_STATUSES)),
     tags: commaList(z.string().toLowerCase().max(24)),
     has: commaList(z.enum(WIDGET_TYPES)),
     dateFrom: dateString.optional(),
@@ -38,7 +38,7 @@ const searchQuerySchema = z
     { message: "dateFrom must be on or before dateTo", path: ["dateTo"] },
   );
 
-// GET /api/events (the Collections grid) only needs paging.
+// GET /api/collections (the Collections grid) only needs paging.
 const listQuerySchema = z.object({
   page,
   limit: z.coerce.number().int().min(1).max(100).default(24),

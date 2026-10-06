@@ -16,19 +16,19 @@ const mongoose = require("mongoose");
 mongoose.set("bufferCommands", false);
 
 const User = require("../models/User");
-const Event = require("../models/Event");
+const Collection = require("../models/Collection");
 const { Widget, widgetModels } = require("../models/Widget");
 const app = require("../app");
 
 const ownerId = new mongoose.Types.ObjectId();
-const eventId = new mongoose.Types.ObjectId();
+const collectionId = new mongoose.Types.ObjectId();
 const rowId = new mongoose.Types.ObjectId();
 
 // ---- In-memory stand-ins for the database -----------------------------------
 const docs = new Map();
-const allowedUsers = new Set([String(ownerId)]); // who may edit the (single) event
+const allowedUsers = new Set([String(ownerId)]); // who may edit the (single) collection
 function makeWidget(type, fields = {}) {
-  const doc = new widgetModels[type]({ event: eventId, row: rowId, createdBy: ownerId, order: 0, ...fields });
+  const doc = new widgetModels[type]({ collectionId, row: rowId, createdBy: ownerId, order: 0, ...fields });
   doc.save = async () => { await doc.validate(); return doc; }; // validate, don't write
   docs.set(String(doc._id), doc);
   return doc;
@@ -36,17 +36,17 @@ function makeWidget(type, fields = {}) {
 User.findById = async () => ({ _id: ownerId, toPublic: () => ({}) });
 Widget.findById = async (id) => docs.get(String(id)) ?? null;
 Widget.deleteOne = async ({ _id }) => { docs.delete(String(_id)); };
-// The access check asks "is this user the owner or a collaborator of the event?"
-Event.exists = async (filter) =>
+// The access check asks "is this user the owner or a collaborator of the collection?"
+Collection.exists = async (filter) =>
   filter.$or.some((clause) => Object.values(clause).some((id) => allowedUsers.has(String(id))))
     ? { _id: filter._id }
     : null;
-// refreshEventSummary() and the response builder read these; give them something harmless.
+// refreshCollectionSummary() and the response builder read these; give them something harmless.
 const lean = (value) => ({ lean: async () => value });
-const eventDoc = () => ({ _id: eventId, owner: ownerId, collaborators: [], title: "T", description: "", tags: [], status: "draft", rows: [{ _id: rowId, name: "" }] });
-Event.findById = () => lean(eventDoc());
+const collectionDoc = () => ({ _id: collectionId, owner: ownerId, collaborators: [], title: "T", description: "", tags: [], status: "draft", rows: [{ _id: rowId, name: "" }] });
+Collection.findById = () => lean(collectionDoc());
 Widget.find = () => lean([...docs.values()].map((d) => d.toObject()));
-Event.findByIdAndUpdate = (id, update) => lean({ ...eventDoc(), ...update.$set });
+Collection.findByIdAndUpdate = (id, update) => lean({ ...collectionDoc(), ...update.$set });
 User.find = () => ({ select: () => lean([]) });
 
 const cookie = `crumbs_token=${jwt.sign({ sub: String(ownerId) }, process.env.JWT_SECRET)}`;
@@ -84,7 +84,7 @@ async function send(method, url, { json, files, field = "image" } = {}) {
 const png = (name = "a.png") => ({ data: PNG, type: "image/png", name });
 
 // ---- The single picture of an image widget --------------------------------------
-test("uploading a picture stores the file, serves it, and updates the event cover", async () => {
+test("uploading a picture stores the file, serves it, and updates the collection cover", async () => {
   const widget = makeWidget("image");
   const { status, json } = await send("POST", `/api/widgets/${widget._id}/image`, { files: [png()] });
 
@@ -92,8 +92,8 @@ test("uploading a picture stores the file, serves it, and updates the event cove
   assert.match(json.widget.image.url, /^\/uploads\/[\w-]+\.png$/);
   assert.equal(json.widget.image.filename, undefined); // disk name stays private
   assert.equal(json.widget.rowId, String(rowId));
-  assert.equal(json.event.summary.imageCount, 1);
-  assert.deepEqual(json.event.summary.tiles.find((t) => t.type === "image"), { type: "image", url: json.widget.image.url });
+  assert.equal(json.collection.summary.imageCount, 1);
+  assert.deepEqual(json.collection.summary.tiles.find((t) => t.type === "image"), { type: "image", url: json.widget.image.url });
   assert.equal(filesOnDisk().length, 1);
 
   const served = await fetch(base + json.widget.image.url);
@@ -121,7 +121,7 @@ test("removing the picture empties the widget but keeps it", async () => {
   const removed = await send("DELETE", `/api/widgets/${widget._id}/image`);
   assert.equal(removed.status, 200);
   assert.equal(removed.json.widget.image, null);
-  assert.equal(removed.json.event.summary.imageCount, 0);
+  assert.equal(removed.json.collection.summary.imageCount, 0);
   assert.equal(filesOnDisk().length, 0);
   assert.ok(docs.has(String(widget._id))); // the widget is still there
 
@@ -164,7 +164,7 @@ test("pictures only go into image widgets; the files are deleted on failure", as
 });
 
 // ---- Access ---------------------------------------------------------------------------
-test("a widget of an event I am not part of is a 404, and uploaded files are deleted", async () => {
+test("a widget of a collection I am not part of is a 404, and uploaded files are deleted", async () => {
   const widget = makeWidget("image");
   allowedUsers.clear();
   assert.equal((await send("POST", `/api/widgets/${widget._id}/image`, { files: [png()] })).status, 404);
@@ -174,7 +174,7 @@ test("a widget of an event I am not part of is a 404, and uploaded files are del
   assert.ok(docs.has(String(widget._id))); // still there
 });
 
-test("a collaborator can edit the widgets of a shared event", async () => {
+test("a collaborator can edit the widgets of a shared collection", async () => {
   const widget = makeWidget("notes");
   const res = await send("PATCH", `/api/widgets/${widget._id}`, { json: { body: "Edited by a friend" } });
   assert.equal(res.status, 200);
@@ -196,7 +196,7 @@ test("a notes widget holds text and a checklist at the same time; edits keep ite
   assert.equal(json.widget.checklist[1].done, false);
   assert.equal(json.widget.mode, undefined);
   assert.equal(json.widget.checklistPercent, undefined); // no progress report
-  assert.equal(json.event.summary.tiles.find((t) => t.type === "note").text, "Hello");
+  assert.equal(json.collection.summary.tiles.find((t) => t.type === "note").text, "Hello");
 });
 
 test("changing only the text leaves the checklist alone, and the other way round", async () => {
@@ -236,7 +236,7 @@ test("setting, rejecting and clearing a date", async () => {
 
   const set = await send("PATCH", url, { json: { date: "2026-10-12", label: "Flight" } });
   assert.equal(set.json.widget.date, "2026-10-12");
-  assert.equal(set.json.event.summary.eventDate, "2026-10-12");
+  assert.equal(set.json.collection.summary.collectionDate, "2026-10-12");
 
   const bad = await send("PATCH", url, { json: { date: "2026-02-30" } });
   assert.equal(bad.status, 400);
@@ -244,16 +244,16 @@ test("setting, rejecting and clearing a date", async () => {
 
   const cleared = await send("PATCH", url, { json: { date: null } });
   assert.equal(cleared.json.widget.date, null);
-  assert.equal(cleared.json.event.summary.eventDate, null);
+  assert.equal(cleared.json.collection.summary.collectionDate, null);
 });
 
-test("with several date widgets, the event date is the earliest", async () => {
+test("with several date widgets, the collection date is the earliest", async () => {
   const early = makeWidget("date");
   const late = makeWidget("date");
   await send("PATCH", `/api/widgets/${late._id}`, { json: { date: "2026-12-01" } });
   const res = await send("PATCH", `/api/widgets/${early._id}`, { json: { date: "2026-10-05" } });
-  assert.equal(res.json.event.summary.eventDate, "2026-10-05");
-  assert.deepEqual(res.json.event.summary.eventDates, ["2026-10-05", "2026-12-01"]);
+  assert.equal(res.json.collection.summary.collectionDate, "2026-10-05");
+  assert.deepEqual(res.json.collection.summary.collectionDates, ["2026-10-05", "2026-12-01"]);
 });
 
 // ---- Unknown fields, wrong types, links ------------------------------------------------

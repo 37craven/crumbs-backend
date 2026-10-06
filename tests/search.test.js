@@ -1,18 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildSearchFilter, buildSortStages, escapeRegex } = require("../services/eventSearch");
+const { buildSearchFilter, buildSortStages, escapeRegex } = require("../services/collectionSearch");
 const { searchQuerySchema } = require("../validators/search");
 const { parseOrThrow } = require("../validators/common");
 
 const owner = "owner-id";
 const parse = (input) => parseOrThrow(searchQuerySchema, input);
 
-test("by default a search covers events I created and events shared with me", () => {
+test("by default a search covers collections I created and collections shared with me", () => {
   const filter = buildSearchFilter(parse({}), owner);
   assert.deepEqual(filter.$and, [{ $or: [{ owner }, { collaborators: owner }] }]);
 });
 
-test("scope narrows the search to my own or to shared events", () => {
+test("scope narrows the search to my own or to shared collections", () => {
   assert.deepEqual(buildSearchFilter(parse({ scope: "mine" }), owner).$and[0], { owner });
   assert.deepEqual(buildSearchFilter(parse({ scope: "shared" }), owner).$and[0], { collaborators: owner });
   assert.throws(() => parse({ scope: "everyone" }), (e) => e.status === 400);
@@ -37,26 +37,26 @@ test("filters combine with AND", () => {
   assert.deepEqual(filter.$and[1], { status: { $in: ["planned", "done"] } });
   assert.deepEqual(filter.$and[2], { tags: { $all: ["school", "work"] } });
   assert.deepEqual(filter.$and[3], { "summary.imageCount": { $gt: 0 } });
-  assert.deepEqual(filter.$and[4], { "summary.eventDate": { $ne: null } });
-  // Several dates per event: ANY of them may fall in the range, inside ONE element.
-  assert.deepEqual(filter.$and[5], { "summary.eventDates": { $elemMatch: { $gte: "2026-10-01", $lte: "2026-10-31" } } });
+  assert.deepEqual(filter.$and[4], { "summary.collectionDate": { $ne: null } });
+  // Several dates per collection: ANY of them may fall in the range, inside ONE element.
+  assert.deepEqual(filter.$and[5], { "summary.collectionDates": { $elemMatch: { $gte: "2026-10-01", $lte: "2026-10-31" } } });
   assert.equal(filter.$and.length, 6);
 });
 
 test("a one-sided date range matches any date on that side", () => {
   const from = buildSearchFilter(parse({ dateFrom: "2026-10-01" }), owner).$and[1];
   const to = buildSearchFilter(parse({ dateTo: "2026-10-31" }), owner).$and[1];
-  assert.deepEqual(from, { "summary.eventDates": { $gte: "2026-10-01" } });
-  assert.deepEqual(to, { "summary.eventDates": { $lte: "2026-10-31" } });
+  assert.deepEqual(from, { "summary.collectionDates": { $gte: "2026-10-01" } });
+  assert.deepEqual(to, { "summary.collectionDates": { $lte: "2026-10-31" } });
 });
 
-test("sorting by date puts events without a date last, both directions", () => {
+test("sorting by date puts collections without a date last, both directions", () => {
   for (const sort of ["date_asc", "date_desc"]) {
     const stages = buildSortStages(sort);
-    assert.equal(stages[1].$sort.noDate, 1); // noDate sorts first, so dated events lead
+    assert.equal(stages[1].$sort.noDate, 1); // noDate sorts first, so dated collections lead
   }
-  assert.equal(buildSortStages("date_asc")[1].$sort["summary.eventDate"], 1);
-  assert.equal(buildSortStages("date_desc")[1].$sort["summary.eventDate"], -1);
+  assert.equal(buildSortStages("date_asc")[1].$sort["summary.collectionDate"], 1);
+  assert.equal(buildSortStages("date_desc")[1].$sort["summary.collectionDate"], -1);
 });
 
 test("title sort ignores letter case", () => {

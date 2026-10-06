@@ -15,13 +15,13 @@ async function getFriendIds(userId) {
 
 // Checks that every id is on the creator's friends list. Returns the ids
 // without duplicates, or throws a 400 naming the problem.
-// Events can only be shared with friends, never with strangers.
+// Collections can only be shared with friends, never with strangers.
 async function assertCanInvite(ownerId, userIds) {
   const unique = [...new Set(userIds.map(String))];
   if (unique.length === 0) return [];
 
   if (unique.includes(String(ownerId))) {
-    throw new HttpError(400, "You are already part of your own event", {
+    throw new HttpError(400, "You are already part of your own collection", {
       collaborators: ["You cannot add yourself"],
     });
   }

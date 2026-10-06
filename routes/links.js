@@ -16,7 +16,7 @@ const previewLimiter = rateLimit({
   message: { message: "Too many link previews, try again in a minute" },
 });
 
-// POST /api/links/preview — look up a link without saving it, so the Add Event
+// POST /api/links/preview — look up a link without saving it, so the Add Collection
 // page can show the thumbnail as soon as the user pastes the address.
 // Body: { "url": "https://..." }
 router.post("/preview", requireAuth, previewLimiter, async (req, res) => {
