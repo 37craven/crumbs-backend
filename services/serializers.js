@@ -1,7 +1,7 @@
 const { daysBetween, todayInTimezone } = require("../utils/dates");
-const { inDisplayOrder } = require("./eventSummary");
-const { buildTiles } = require("./eventTiles");
-const { ALLOWED_TRANSITIONS } = require("./eventStatus");
+const { inDisplayOrder } = require("./collectionSummary");
+const { buildTiles } = require("./collectionTiles");
+const { ALLOWED_TRANSITIONS } = require("./collectionStatus");
 
 // Turns database objects into the JSON the frontend receives.
 // Two reasons not to send documents as they are:
@@ -16,38 +16,38 @@ function dateInfo(dateString, today) {
   return { dateStatus, daysUntil };
 }
 
-// `ctx` comes from eventContext(): { today, viewerId, people }.
+// `ctx` comes from collectionContext(): { today, viewerId, people }.
 // All three are optional so the function can be tested on its own.
-function serializeEvent(event, ctx = {}) {
+function serializeCollection(collection, ctx = {}) {
   const today = ctx.today ?? todayInTimezone();
   const person = (id) =>
     ctx.people?.get(String(id)) ?? { id: String(id), username: null };
 
-  const s = event.summary ?? {};
-  const { dateStatus, daysUntil } = dateInfo(s.eventDate, today);
+  const s = collection.summary ?? {};
+  const { dateStatus, daysUntil } = dateInfo(s.collectionDate, today);
 
   return {
-    id: String(event._id),
-    title: event.title,
-    description: event.description ?? "",
-    tags: event.tags ?? [],
-    status: event.status,
-    owner: person(event.owner),
-    collaborators: (event.collaborators ?? []).map(person),
-    rows: (event.rows ?? []).map((row) => ({ id: String(row._id), name: row.name ?? "" })),
+    id: String(collection._id),
+    title: collection.title,
+    description: collection.description ?? "",
+    tags: collection.tags ?? [],
+    status: collection.status,
+    owner: person(collection.owner),
+    collaborators: (collection.collaborators ?? []).map(person),
+    rows: (collection.rows ?? []).map((row) => ({ id: String(row._id), name: row.name ?? "" })),
     // "owner" can delete and manage people; "collaborator" can edit the content.
     role: ctx.viewerId
-      ? String(event.owner) === ctx.viewerId
+      ? String(collection.owner) === ctx.viewerId
         ? "owner"
         : "collaborator"
       : null,
-    // The statuses this event can be moved to right now (for a dropdown).
-    nextStatuses: ALLOWED_TRANSITIONS[event.status] ?? [],
-    // A planned event whose date has passed needs attention.
-    isOverdue: event.status === "planned" && dateStatus === "past",
+    // The statuses this collection can be moved to right now (for a dropdown).
+    nextStatuses: ALLOWED_TRANSITIONS[collection.status] ?? [],
+    // A planned collection whose date has passed needs attention.
+    isOverdue: collection.status === "planned" && dateStatus === "past",
     summary: {
-      eventDate: s.eventDate ?? null,
-      eventDates: s.eventDates ?? [],
+      collectionDate: s.collectionDate ?? null,
+      collectionDates: s.collectionDates ?? [],
       dateStatus,
       daysUntil,
       imageCount: s.imageCount ?? 0, // shown as "N memories"
@@ -58,20 +58,20 @@ function serializeEvent(event, ctx = {}) {
         tile.type === "date" ? { ...tile, ...dateInfo(tile.date, today) } : tile,
       ),
     },
-    createdAt: event.createdAt,
-    updatedAt: event.updatedAt,
+    createdAt: collection.createdAt,
+    updatedAt: collection.updatedAt,
   };
 }
 
-// Row by row (in the order of event.rows), then left to right inside each row.
-function sortWidgets(widgets, event = {}) {
-  return inDisplayOrder(event, widgets);
+// Row by row (in the order of collection.rows), then left to right inside each row.
+function sortWidgets(widgets, collection = {}) {
+  return inDisplayOrder(collection, widgets);
 }
 
 function serializeWidget(widget, today = todayInTimezone()) {
   const base = {
     id: String(widget._id),
-    eventId: String(widget.event),
+    collectionId: String(widget.collectionId),
     rowId: widget.row ? String(widget.row) : null,
     type: widget.type,
     order: widget.order,
@@ -126,4 +126,4 @@ function serializeWidget(widget, today = todayInTimezone()) {
   }
 }
 
-module.exports = { serializeEvent, serializeWidget, sortWidgets, dateInfo };
+module.exports = { serializeCollection, serializeWidget, sortWidgets, dateInfo };

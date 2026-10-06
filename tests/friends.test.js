@@ -1,12 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Friendship = require("../models/Friendship");
-const Event = require("../models/Event");
+const Collection = require("../models/Collection");
 const { pairKeyFor } = Friendship;
 const { relationshipOf } = require("../services/friends");
 const { accessFilter, isOwner, assertOwner } = require("../services/access");
 const { sendRequestSchema, userSearchSchema } = require("../validators/friends");
-const { createEventSchema, addCollaboratorSchema } = require("../validators/event");
+const { createCollectionSchema, addCollaboratorSchema } = require("../validators/collection");
 const { parseOrThrow } = require("../validators/common");
 
 const A = "aaaaaaaaaaaaaaaaaaaaaaaa";
@@ -49,24 +49,24 @@ test("friend request and user search bodies are validated", () => {
 
 test("access: the creator and collaborators may edit; only the creator may delete or manage people", () => {
   assert.deepEqual(accessFilter(A), { $or: [{ owner: A }, { collaborators: A }] });
-  const event = { owner: A, collaborators: [B] };
-  assert.equal(isOwner(event, A), true);
-  assert.equal(isOwner(event, B), false);
-  assert.doesNotThrow(() => assertOwner(event, A, "delete this event"));
-  assert.throws(() => assertOwner(event, B, "delete this event"), (e) => e.status === 403 && /Only the creator can delete/.test(e.message));
+  const collection = { owner: A, collaborators: [B] };
+  assert.equal(isOwner(collection, A), true);
+  assert.equal(isOwner(collection, B), false);
+  assert.doesNotThrow(() => assertOwner(collection, A, "delete this collection"));
+  assert.throws(() => assertOwner(collection, B, "delete this collection"), (e) => e.status === 403 && /Only the creator can delete/.test(e.message));
 });
 
-test("events can be shared at creation; duplicates and bad ids are handled", () => {
-  const input = parseOrThrow(createEventSchema, { title: "T", collaborators: [A, B] });
+test("collections can be shared at creation; duplicates and bad ids are handled", () => {
+  const input = parseOrThrow(createCollectionSchema, { title: "T", collaborators: [A, B] });
   assert.deepEqual(input.collaborators, [A, B]);
-  assert.deepEqual(parseOrThrow(createEventSchema, { title: "T" }).collaborators, []);
-  assert.throws(() => parseOrThrow(createEventSchema, { title: "T", collaborators: ["nope"] }), (e) => e.status === 400);
+  assert.deepEqual(parseOrThrow(createCollectionSchema, { title: "T" }).collaborators, []);
+  assert.throws(() => parseOrThrow(createCollectionSchema, { title: "T", collaborators: ["nope"] }), (e) => e.status === 400);
   assert.throws(() => parseOrThrow(addCollaboratorSchema, {}), (e) => e.status === 400);
 });
 
-test("an event cannot be shared with more than 20 people", async () => {
+test("a collection cannot be shared with more than 20 people", async () => {
   const many = Array.from({ length: 21 }, (_, i) => String(i).padStart(24, "0"));
-  const event = new Event({ owner: A, title: "T", collaborators: many });
-  await assert.rejects(event.validate(), (e) => Boolean(e.errors.collaborators));
-  assert.throws(() => parseOrThrow(createEventSchema, { title: "T", collaborators: many }), (e) => e.status === 400);
+  const collection = new Collection({ owner: A, title: "T", collaborators: many });
+  await assert.rejects(collection.validate(), (e) => Boolean(e.errors.collaborators));
+  assert.throws(() => parseOrThrow(createCollectionSchema, { title: "T", collaborators: many }), (e) => e.status === 400);
 });

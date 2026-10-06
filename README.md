@@ -67,8 +67,8 @@ If the database name in that line is `crumbs`, the app refuses to start — that
 | `npm start` | Start the server |
 | `npm run dev` | Start with `node --watch`, restarts on file changes |
 | `npm run db:reset` | Empty the **sandbox** database |
-| `npm run refresh` | Recompute every event's card summary and search text in the sandbox (after an update that changes them) |
-| `npm run seed` | Fill the sandbox with sample events (`npm run seed -- you@email.com` seeds your own account) |
+| `npm run refresh` | Recompute every collection's card summary and search text in the sandbox (after an update that changes them) |
+| `npm run seed` | Fill the sandbox with sample collections (`npm run seed -- you@email.com` seeds your own account) |
 | `npm test` | Run the automated tests (no database needed) |
 | `npm run smoke` | End-to-end check against a running server and the sandbox database |
 
@@ -104,9 +104,9 @@ Login and register are rate limited to 10 attempts per 15 minutes per IP. On a s
 
 `GET /` returns a plain `Crumbs API` string and is not part of the API.
 
-## Events, rows, widgets, friends and sharing API
+## Collections, rows, widgets, friends and sharing API
 
-An **event** is one card on the Collections page. It is made of **rows**, and each row holds **widgets** (notes, date, image or link, in any mix, in any number). A new event starts with **one empty row**. A creator can **share** an event with people from their **friends list**; those people can edit it, and it appears in their Collections too. All routes below need the login cookie. Someone who is not part of an event gets `404` for it, the same as for a missing one.
+A **collection** is one card on the Collections page. It is made of **rows**, and each row holds **widgets** (notes, date, image or link, in any mix, in any number). A new collection starts with **one empty row**. A creator can **share** a collection with people from their **friends list**; those people can edit it, and it appears in their Collections too. All routes below need the login cookie. Someone who is not part of a collection gets `404` for it, the same as for a missing one.
 
 **Who can do what**
 
@@ -114,38 +114,38 @@ An **event** is one card on the Collections page. It is made of **rows**, and ea
 |---|---|---|
 | See and edit title, tags, rows, widgets, notes, checklists, pictures, links, dates | yes | yes |
 | Change the status | yes | yes |
-| Delete the event | yes | no (403) |
+| Delete the collection | yes | no (403) |
 | Add or remove other people | yes | no (403) |
-| Leave the event | no | yes |
+| Leave the collection | no | yes |
 
-### Events
+### Collections
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/events` | Events I created plus events shared with me, recently edited first (`?page&limit`). Powers the Collections grid |
-| POST | `/api/events` | Open a new event: one empty row, no widgets. `title` is optional. With nothing in it the status is `new` (see below) |
-| GET | `/api/events/:id` | One event with its rows and all its widgets |
-| PATCH | `/api/events/:id` | Change `title`, `description` or `tags` |
-| DELETE | `/api/events/:id` | Creator only. Deletes the event, its widgets and its pictures for everyone |
-| PATCH | `/api/events/:id/status` | Move between `draft`, `planned`, `done`, `archived` (rules below) |
-| GET | `/api/events/search` | Multi-filter search (table below) |
-| GET | `/api/events/upcoming` | Open events in the next `?days=30`, soonest first, with `daysUntil` |
-| GET | `/api/events/:id/widgets` | Just the widgets, in display order |
-| POST | `/api/events/:id/collaborators` | Creator only. Share with a friend. Body `{ "userId": "..." }` |
-| DELETE | `/api/events/:id/collaborators/:userId` | Creator removes anyone; a collaborator can only remove themselves (leave) |
+| GET | `/api/collections` | Collections I created plus collections shared with me, recently edited first (`?page&limit`). Powers the Collections grid |
+| POST | `/api/collections` | Open a new collection: one empty row, no widgets. `title` is optional. With nothing in it the status is `new` (see below) |
+| GET | `/api/collections/:id` | One collection with its rows and all its widgets |
+| PATCH | `/api/collections/:id` | Change `title`, `description` or `tags` |
+| DELETE | `/api/collections/:id` | Creator only. Deletes the collection, its widgets and its pictures for everyone |
+| PATCH | `/api/collections/:id/status` | Move between `draft`, `planned`, `done`, `archived` (rules below) |
+| GET | `/api/collections/search` | Multi-filter search (table below) |
+| GET | `/api/collections/upcoming` | Open collections in the next `?days=30`, soonest first, with `daysUntil` |
+| GET | `/api/collections/:id/widgets` | Just the widgets, in display order |
+| POST | `/api/collections/:id/collaborators` | Creator only. Share with a friend. Body `{ "userId": "..." }` |
+| DELETE | `/api/collections/:id/collaborators/:userId` | Creator removes anyone; a collaborator can only remove themselves (leave) |
 
 ### Rows
 
-Rows are listed in `event.rows`, top to bottom. At most 20 rows per event.
+Rows are listed in `collection.rows`, top to bottom. At most 20 rows per collection.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/events/:id/rows` | Add an empty row at the bottom. Body `{ "name"?: "..." }` |
-| PATCH | `/api/events/:id/rows/:rowId` | Rename a row. Body `{ "name": "..." }` (up to 40 characters, may be empty) |
-| DELETE | `/api/events/:id/rows/:rowId` | Delete the row, its widgets and their pictures |
-| PATCH | `/api/events/:id/rows/order` | Rearrange the rows. Body `{ "order": [rowId, ...] }` |
-| POST | `/api/events/:id/rows/:rowId/widgets` | Add a widget to the end of the row (see below) |
-| PATCH | `/api/events/:id/rows/:rowId/widgets/order` | Rearrange the widgets of one row. Body `{ "order": [widgetId, ...] }` |
+| POST | `/api/collections/:id/rows` | Add an empty row at the bottom. Body `{ "name"?: "..." }` |
+| PATCH | `/api/collections/:id/rows/:rowId` | Rename a row. Body `{ "name": "..." }` (up to 40 characters, may be empty) |
+| DELETE | `/api/collections/:id/rows/:rowId` | Delete the row, its widgets and their pictures |
+| PATCH | `/api/collections/:id/rows/order` | Rearrange the rows. Body `{ "order": [rowId, ...] }` |
+| POST | `/api/collections/:id/rows/:rowId/widgets` | Add a widget to the end of the row (see below) |
+| PATCH | `/api/collections/:id/rows/:rowId/widgets/order` | Rearrange the widgets of one row. Body `{ "order": [widgetId, ...] }` |
 
 ### Widgets
 
@@ -168,7 +168,7 @@ Any widget type can be added to any row, any number of times (up to 30 widgets p
 | DELETE | `/api/widgets/:id/image` | Empty the widget; the widget itself stays |
 | POST | `/api/links/preview` | Look up a link (title, image, embed) without saving it. Body `{ "url": "..." }` |
 
-**Notes** hold text and a checklist together, always. **Image widgets** hold exactly one picture and have no thumbnail; the first pictures in display order become the image tiles of the event card.
+**Notes** hold text and a checklist together, always. **Image widgets** hold exactly one picture and have no thumbnail; the first pictures in display order become the image tiles of the collection card.
 
 ### Friends
 
@@ -180,7 +180,7 @@ Any widget type can be added to any row, any number of times (up to 30 widgets p
 | POST | `/api/friends/requests` | Send a request. Body `{ "userId": "..." }`. If they already asked me, this accepts it |
 | PATCH | `/api/friends/requests/:id/accept` | Accept a request sent to me |
 | DELETE | `/api/friends/requests/:id` | Decline a request sent to me, or cancel one I sent |
-| DELETE | `/api/friends/:userId` | Stop being friends. Events already shared stay shared |
+| DELETE | `/api/friends/:userId` | Stop being friends. Collections already shared stay shared |
 
 Only `id` and `username` of other people are ever returned, never emails.
 
@@ -195,29 +195,29 @@ All filters are optional and combine with AND.
 | `status` | `planned,done` | Any of these statuses |
 | `tags` | `school,work` | Has **all** of these tags |
 | `has` | `image,date` | Has content: `notes`, `image` (a picture), `date`, `link` |
-| `dateFrom`, `dateTo` | `2026-10-01` | Any date widget of the event within the range (events with no date never match) |
-| `sort` | `date_asc` | `recent` (default), `newest`, `oldest`, `title`, `date_asc`, `date_desc`. No-date events always sort last |
+| `dateFrom`, `dateTo` | `2026-10-01` | Any date widget of the collection within the range (collections with no date never match) |
+| `sort` | `date_asc` | `recent` (default), `newest`, `oldest`, `title`, `date_asc`, `date_desc`. No-date collections always sort last |
 | `page`, `limit` | `1`, `12` | Paging (`limit` max 50) |
 
 ### Business rules
 
-- **Blank events.** Opening a new event creates it with status `new`. It is not listed in Collections or Search. The first title, tag, description or widget turns it into a `draft` automatically. If the user leaves without adding anything the frontend deletes it (`DELETE /api/events/:id`); blank events still left after an hour are removed the next time that user loads `GET /api/events`.
-- **Card tiles.** Each event in a list carries `summary.tiles`: up to four tiles in the order date, note, image, link. A kind that is missing frees a slot, and free slots are filled with more pictures, then links, dates and notes. `summary.imageCount` is the "memories" count.
-- **Next statuses.** Each event carries `nextStatuses`, the statuses it can move to right now. Use it for the status dropdown, so impossible moves are never offered.
-- **Friends only.** An event can only be shared with people on the creator's friends list (`400` otherwise). At most 20 people per event.
+- **Blank collections.** Opening a new collection creates it with status `new`. It is not listed in Collections or Search. The first title, tag, description or widget turns it into a `draft` automatically. If the user leaves without adding anything the frontend deletes it (`DELETE /api/collections/:id`); blank collections still left after an hour are removed the next time that user loads `GET /api/collections`.
+- **Card tiles.** Each collection in a list carries `summary.tiles`: up to four tiles in the order date, note, image, link. A kind that is missing frees a slot, and free slots are filled with more pictures, then links, dates and notes. `summary.imageCount` is the "memories" count.
+- **Next statuses.** Each collection carries `nextStatuses`, the statuses it can move to right now. Use it for the status dropdown, so impossible moves are never offered.
+- **Friends only.** A collection can only be shared with people on the creator's friends list (`400` otherwise). At most 20 people per collection.
 - **Status moves.** `draft` to `planned` or `archived`; `planned` to `draft`, `done` or `archived`; `done` to `planned` or `archived`; `archived` to `draft`. Anything else is `409`.
-- **Planning needs a date.** An event can only become `planned` once at least one date widget has a date.
-- **Finishing needs finished checklists.** Every checklist item in every notes widget must be ticked before the event can become `done`.
-- **Several dates.** An event can have many date widgets. Its card date (`summary.eventDate`) is the **earliest**, and that one drives sorting, "upcoming" and "overdue". A date-range search matches an event if **any** of its dates is in the range.
-- **Overdue.** A `planned` event whose card date has passed is returned with `isOverdue: true`.
+- **Planning needs a date.** A collection can only become `planned` once at least one date widget has a date.
+- **Finishing needs finished checklists.** Every checklist item in every notes widget must be ticked before the collection can become `done`.
+- **Several dates.** A collection can have many date widgets. Its card date (`summary.collectionDate`) is the **earliest**, and that one drives sorting, "upcoming" and "overdue". A date-range search matches a collection if **any** of its dates is in the range.
+- **Overdue.** A `planned` collection whose card date has passed is returned with `isOverdue: true`.
 - **Dates are calendar days.** They are stored as `YYYY-MM-DD` text, not timestamps, so a date never shifts across timezones. "Today" is decided by `APP_TIMEZONE`.
 - **Derived values are never stored.** `daysUntil`, `dateStatus`, `isOverdue` and `role` are worked out on every read.
 - **Link safety.** Pasted links are fetched by the server to build the preview. Private, local and non-http(s) addresses are refused, redirects are re-checked, and responses are capped at 512 KB and 5 seconds. A site that cannot be reached still saves, with `preview.status: "unavailable"`.
-- **Pictures.** JPEG, PNG, WebP or GIF, up to 5 MB, one per image widget. Files are stored in `uploads/` under random names and served from `/uploads/<name>`. Replacing or removing a picture, or deleting its widget, row or event, deletes the file.
+- **Pictures.** JPEG, PNG, WebP or GIF, up to 5 MB, one per image widget. Files are stored in `uploads/` under random names and served from `/uploads/<name>`. Replacing or removing a picture, or deleting its widget, row or collection, deletes the file.
 
-### Sample: create an event, then build it up
+### Sample: create a collection, then build it up
 
-`POST /api/events`
+`POST /api/collections`
 
 ```json
 {}   // or { "title": "Weekend Hike", "tags": ["Outdoors"], "collaborators": ["6650a1..."] }
@@ -227,7 +227,7 @@ All filters are optional and combine with AND.
 
 ```json
 {
-  "event": {
+  "collection": {
     "id": "6650f1...",
     "title": "Weekend Hike",
     "status": "new",
@@ -235,18 +235,18 @@ All filters are optional and combine with AND.
     "owner": { "id": "6650a0...", "username": "jian" },
     "collaborators": [{ "id": "6650a1...", "username": "mika" }],
     "rows": [{ "id": "6650f2...", "name": "" }],
-    "nextStatuses": [], "summary": { "eventDate": null, "eventDates": [], "imageCount": 0, "linkCount": 0, "tiles": [] }
+    "nextStatuses": [], "summary": { "collectionDate": null, "collectionDates": [], "imageCount": 0, "linkCount": 0, "tiles": [] }
   },
   "widgets": []
 }
 ```
 
-`POST /api/events/6650f1.../rows/6650f2.../widgets` with `{ "type": "notes", "body": "Start at 4:30 AM", "checklist": [{ "text": "Pack headlamps" }] }` gives `201`:
+`POST /api/collections/6650f1.../rows/6650f2.../widgets` with `{ "type": "notes", "body": "Start at 4:30 AM", "checklist": [{ "text": "Pack headlamps" }] }` gives `201`:
 
 ```json
 {
   "widget": { "id": "6650f3...", "rowId": "6650f2...", "type": "notes", "order": 0, "body": "Start at 4:30 AM", "checklist": [{ "id": "...", "text": "Pack headlamps", "done": false }] },
-  "event": { "id": "6650f1...", "status": "draft", "summary": { "tiles": [{ "type": "note", "text": "Start at 4:30 AM" }] } }
+  "collection": { "id": "6650f1...", "status": "draft", "summary": { "tiles": [{ "type": "note", "text": "Start at 4:30 AM" }] } }
 }
 ```
 
@@ -254,7 +254,7 @@ All filters are optional and combine with AND.
 
 Every error has the same shape. `fields` appears only for validation problems, with nested names joined by dots.
 
-`POST /api/events` with `{ "title": "", "collaborators": ["nope"] }` gives `400`:
+`POST /api/collections` with `{ "title": "", "collaborators": ["nope"] }` gives `400`:
 
 ```json
 {
@@ -270,8 +270,8 @@ Every error has the same shape. `fields` appears only for validation problems, w
 |---|---|
 | `400` | Validation failed, malformed id, malformed JSON, or sharing with someone who is not a friend |
 | `401` | Not signed in |
-| `403` | Only the creator may do this (delete the event, manage people) |
-| `404` | Event or widget not found, or you are not part of it, or unknown route |
+| `403` | Only the creator may do this (delete the collection, manage people) |
+| `404` | Collection or widget not found, or you are not part of it, or unknown route |
 | `409` | Status move not allowed, already a friend / already shared, or the record changed while you were editing it |
 | `413` | Image over 5 MB |
 | `500` | Unexpected server error (details are logged, not sent) |
@@ -283,8 +283,8 @@ server.js               loads .env, connects to MongoDB, syncs indexes, starts l
 app.js                  middleware and route mounting only
 config/database.js      live/sandbox names and the guard
 config/uploads.js       upload folder, size and type limits
-models/                 User, Event, Widget (+ notes/image/date/link types), Friendship
-routes/                 auth, events, rows, widgets, links, friends, health
+models/                 User, Collection, Widget (+ notes/image/date/link types), Friendship
+routes/                 auth, collections, rows, widgets, links, friends, health
 validators/             Zod schemas for request bodies and query strings
 services/               business logic: access rules, friends, status rules, card tiles, search,
                         summaries, link previews, serializers, payload builders
@@ -298,7 +298,7 @@ uploads/                uploaded images (git-ignored)
 ## Conventions
 
 - CommonJS, double quotes, semicolons, 2-space indent.
-- Zod validates every request body. `routes/auth.js` has its own `validationError()`; the events code uses `parseOrThrow()` from `validators/common.js`. Both give the same `{ message, fields }` shape.
+- Zod validates every request body. `routes/auth.js` has its own `validationError()`; the collections code uses `parseOrThrow()` from `validators/common.js`. Both give the same `{ message, fields }` shape.
 - Throw `new HttpError(status, message)` from routes and services instead of writing error responses by hand. `middleware/errorHandler.js` formats them.
 - Routes parse input and shape output; rules live in `services/`.
 - The `password` field is `select: false`, so it never comes back from a query. Use `.select("+password")` only to compare a hash.

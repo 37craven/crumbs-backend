@@ -7,7 +7,7 @@ const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
 const healthRoutes = require("./routes/health");
 const authRoutes = require("./routes/auth");
-const eventRoutes = require("./routes/events");
+const collectionRoutes = require("./routes/collections");
 const widgetRoutes = require("./routes/widgets");
 const linkRoutes = require("./routes/links");
 const friendRoutes = require("./routes/friends");
@@ -38,7 +38,7 @@ app.use(
 // 3. Routes
 app.use("/", healthRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/events", eventRoutes);
+app.use("/api/collections", collectionRoutes);
 app.use("/api/widgets", widgetRoutes);
 app.use("/api/links", linkRoutes);
 app.use("/api/friends", friendRoutes);

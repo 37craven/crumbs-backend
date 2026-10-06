@@ -49,8 +49,8 @@ function todayInTimezone(
 
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 
-// "2026-12-25" -> "2026-12-25 december 2026". Added to an event's searchable
-// text so a search for "december", "dec" or "2026" finds events with a date then.
+// "2026-12-25" -> "2026-12-25 december 2026". Added to a collection's searchable
+// text so a search for "december", "dec" or "2026" finds collections with a date then.
 function dateSearchText(dateString) {
   const [year, month] = dateString.split("-");
   return `${dateString} ${MONTHS[Number(month) - 1]} ${year}`;

@@ -1,13 +1,13 @@
-// Fills the sandbox database with sample events so the app looks complete.
+// Fills the sandbox database with sample collections so the app looks complete.
 //
 //   npm run seed                  -> seeds the demo account (demo@crumbs.test)
 //   npm run seed -- me@email.com  -> seeds an existing account of yours
 //
 // It also creates three sample people (mika, jon, ana: password Password123!),
 // makes mika and jon your friends, leaves a pending request from ana, shares
-// some of your events with them, and adds two events THEY created and shared
+// some of your collections with them, and adds two collections THEY created and shared
 // with you.
-// It first DELETES the events of you and those three people, so you can run it
+// It first DELETES the collections of you and those three people, so you can run it
 // again at any time.
 // Like reset-sandbox.js, it refuses to touch anything but the sandbox database.
 
@@ -22,11 +22,11 @@ process.loadEnvFile();
 const { SANDBOX_DB_NAME, getDatabaseName } = require("../config/database");
 const { UPLOAD_DIR, PUBLIC_UPLOAD_PATH } = require("../config/uploads");
 const User = require("../models/User");
-const Event = require("../models/Event");
+const Collection = require("../models/Collection");
 const Friendship = require("../models/Friendship");
 const { pairKeyFor } = Friendship;
 const { Widget, widgetModels } = require("../models/Widget");
-const { refreshEventSummary } = require("../services/eventSummary");
+const { refreshCollectionSummary } = require("../services/collectionSummary");
 const { getEmbedUrl } = require("../services/linkPreview");
 const { todayInTimezone, addDays } = require("../utils/dates");
 
@@ -114,7 +114,7 @@ function seedImage(label) {
 
 // ---- Sample data ------------------------------------------------------------
 // Dates are offsets from today, so the demo always has upcoming, today, past
-// and overdue events no matter when you run it.
+// and overdue collections no matter when you run it.
 const today = todayInTimezone();
 const inDays = (n) => addDays(today, n);
 
@@ -126,7 +126,7 @@ function link(url, title, description, siteName) {
   };
 }
 
-// Small helpers so the sample data reads like the page: each event has ROWS, and
+// Small helpers so the sample data reads like the page: each collection has ROWS, and
 // each row has WIDGETS (N = notes, D = date, I = image, L = link).
 const N = (body, items = []) => ({ type: "notes", body, checklist: items.map(([text, done]) => ({ text, done })) });
 const D = (date, label = "") => ({ type: "date", date, label });
@@ -221,12 +221,12 @@ const SAMPLE_EVENTS = [
   },
   {
     owner: "me", share: [],
-    title: "Fresh Event",
-    description: "A brand new event: one empty row, ready to fill.",
+    title: "Fresh Collection",
+    description: "A brand new collection: one empty row, ready to fill.",
     tags: [], status: "draft",
     rows: [{ name: "", widgets: [] }],
   },
-  // ---- Events other people created and shared WITH you ----
+  // ---- Collections other people created and shared WITH you ----
   {
     owner: "mika", share: ["me", "jon"],
     title: "Surprise Party for Ana",
@@ -277,10 +277,10 @@ async function findOrCreatePerson(name) {
 // Deletes everything this script created before, so it can run again.
 async function clearOldData(users) {
   const ownerIds = Object.values(users).map((u) => u._id);
-  const old = await Event.find({ owner: { $in: ownerIds } }).select("_id").lean();
-  const ids = old.map((event) => event._id);
-  await Widget.deleteMany({ event: { $in: ids } });
-  await Event.deleteMany({ _id: { $in: ids } });
+  const old = await Collection.find({ owner: { $in: ownerIds } }).select("_id").lean();
+  const ids = old.map((collection) => collection._id);
+  await Widget.deleteMany({ collectionId: { $in: ids } });
+  await Collection.deleteMany({ _id: { $in: ids } });
 
   const { me, mika, jon, ana } = users;
   const pairs = [[me, mika], [me, jon], [me, ana], [mika, jon]];
@@ -297,9 +297,9 @@ async function createFriendships({ me, mika, jon, ana }) {
   await Friendship.create({ requester: ana._id, recipient: me._id, status: "pending" });
 }
 
-async function createEvent(sample, users, stamp) {
+async function createCollection(sample, users, stamp) {
   const owner = users[sample.owner];
-  const event = await Event.create({
+  const collection = await Collection.create({
     owner: owner._id,
     title: sample.title,
     description: sample.description,
@@ -311,11 +311,11 @@ async function createEvent(sample, users, stamp) {
     updatedAt: stamp,
   });
 
-  // event.rows now have their ids; each widget points at its row.
+  // collection.rows now have their ids; each widget points at its row.
   const widgets = [];
   sample.rows.forEach((row, rowIndex) => {
     row.widgets.forEach(({ type, label, ...data }, order) => {
-      const base = { event: event._id, row: event.rows[rowIndex]._id, createdBy: owner._id, order };
+      const base = { collectionId: collection._id, row: collection.rows[rowIndex]._id, createdBy: owner._id, order };
       widgets.push(
         new widgetModels[type](type === "image" ? { ...base, image: seedImage(label) } : { ...base, ...data }),
       );
@@ -323,31 +323,31 @@ async function createEvent(sample, users, stamp) {
   });
 
   await Promise.all(widgets.map((widget) => widget.save()));
-  await refreshEventSummary(event._id);
+  await refreshCollectionSummary(collection._id);
 }
 
 async function seed() {
   await mongoose.connect(process.env.MONGODB_URI);
   // Make sure the indexes match the current schemas (see server.js).
-  await Promise.all([Event.syncIndexes(), Widget.syncIndexes(), Friendship.syncIndexes()]);
+  await Promise.all([Collection.syncIndexes(), Widget.syncIndexes(), Friendship.syncIndexes()]);
 
   const me = await findOrCreateUser(process.argv[2]);
   const [mika, jon, ana] = await Promise.all(PEOPLE.map(findOrCreatePerson));
   const users = { me, mika, jon, ana };
 
   const removed = await clearOldData(users);
-  if (removed) console.log(`Removed ${removed} existing sample event(s)`);
+  if (removed) console.log(`Removed ${removed} existing sample collection(s)`);
 
   await createFriendships(users);
 
   // A little time apart so "recently edited" and "newest" sort sensibly.
   let minutesAgo = SAMPLE_EVENTS.length;
   for (const sample of SAMPLE_EVENTS) {
-    await createEvent(sample, users, new Date(Date.now() - minutesAgo * 60 * 1000));
+    await createCollection(sample, users, new Date(Date.now() - minutesAgo * 60 * 1000));
     minutesAgo -= 1;
   }
 
-  console.log(`Seeded ${SAMPLE_EVENTS.length} events for ${me.email} (${dbName}).`);
+  console.log(`Seeded ${SAMPLE_EVENTS.length} collections for ${me.email} (${dbName}).`);
   console.log("Friends: mika, jon. Pending request from: ana. Sample people use Password123!");
   await mongoose.disconnect();
 }

@@ -1,5 +1,5 @@
 const express = require("express");
-const Event = require("../models/Event");
+const Collection = require("../models/Collection");
 const { Widget } = require("../models/Widget");
 const { requireAuth } = require("../middleware/auth");
 const { validateObjectIdParam } = require("../middleware/validateObjectId");
@@ -10,9 +10,9 @@ const { todayInTimezone } = require("../utils/dates");
 const { parseOrThrow } = require("../validators/common");
 const { widgetUpdateSchemas, checklistToggleSchema } = require("../validators/widget");
 const { applyWidgetData } = require("../services/widgets");
-const { refreshEventSummary } = require("../services/eventSummary");
+const { refreshCollectionSummary } = require("../services/collectionSummary");
 const { serializeWidget } = require("../services/serializers");
-const { eventJson } = require("../services/eventPayload");
+const { collectionJson } = require("../services/collectionPayload");
 const { accessFilter } = require("../services/access");
 const { removeStoredFiles } = require("../services/imageFiles");
 
@@ -23,28 +23,28 @@ router.param("id", validateObjectIdParam);
 router.param("itemId", validateObjectIdParam);
 
 // Returns a Mongoose document (not a plain object) because callers change and
-// save it. A widget belongs to an event, so whoever may edit the event may edit
+// save it. A widget belongs to a collection, so whoever may edit the collection may edit
 // its widgets. Everyone else gets a 404, same as for a missing widget.
 async function findEditableWidget(id, userId) {
   const widget = await Widget.findById(id);
   if (!widget) throw new HttpError(404, "Widget not found");
 
-  const allowed = await Event.exists({ _id: widget.event, ...accessFilter(userId) });
+  const allowed = await Collection.exists({ _id: widget.collectionId, ...accessFilter(userId) });
   if (!allowed) throw new HttpError(404, "Widget not found");
 
   return widget;
 }
 
 // Every successful change responds with the updated widget AND the updated
-// event summary, so the page can refresh the widget and the grid card at once.
+// collection summary, so the page can refresh the widget and the grid card at once.
 async function respond(res, widget, userId, status = 200) {
-  const event = await refreshEventSummary(widget.event);
-  // The event can be deleted (e.g. in another tab) while a widget is being saved.
-  if (!event) throw new HttpError(404, "Event not found");
+  const collection = await refreshCollectionSummary(widget.collectionId);
+  // The collection can be deleted (e.g. in another tab) while a widget is being saved.
+  if (!collection) throw new HttpError(404, "Collection not found");
 
   res.status(status).json({
     widget: serializeWidget(widget.toObject(), todayInTimezone()),
-    event: await eventJson(event, userId),
+    collection: await collectionJson(collection, userId),
   });
 }
 
@@ -78,11 +78,11 @@ router.delete("/:id", async (req, res) => {
   await Widget.deleteOne({ _id: widget._id });
   await removeStoredFiles(filenames);
 
-  const event = await refreshEventSummary(widget.event);
+  const collection = await refreshCollectionSummary(widget.collectionId);
   res.json({
     message: "Widget deleted",
     deleted: { images: filenames.length },
-    event: event ? await eventJson(event, req.user._id) : null,
+    collection: collection ? await collectionJson(collection, req.user._id) : null,
   });
 });
 

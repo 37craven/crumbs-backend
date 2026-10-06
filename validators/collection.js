@@ -1,5 +1,5 @@
 const { z } = require("zod");
-const { EVENT_STATUSES, MAX_TAGS, MAX_COLLABORATORS } = require("../models/Event");
+const { COLLECTION_STATUSES, MAX_TAGS, MAX_COLLABORATORS } = require("../models/Collection");
 const { atLeastOneField, objectIdString } = require("./common");
 
 const title = z
@@ -23,17 +23,17 @@ const tag = z
 // ["Work", "work "] -> ["work"]: lowercase, trim, then drop duplicates.
 const tags = z
   .array(tag)
-  .max(MAX_TAGS, `An event can have at most ${MAX_TAGS} tags`)
+  .max(MAX_TAGS, `A collection can have at most ${MAX_TAGS} tags`)
   .transform((list) => [...new Set(list)]);
 
-// Ids of friends to share the event with. Checked against the friends list
+// Ids of friends to share the collection with. Checked against the friends list
 // by the route, not here.
 const collaboratorIds = z
   .array(objectIdString)
-  .max(MAX_COLLABORATORS, `An event can be shared with at most ${MAX_COLLABORATORS} people`);
+  .max(MAX_COLLABORATORS, `A collection can be shared with at most ${MAX_COLLABORATORS} people`);
 
-const createEventSchema = z.strictObject({
-  // Optional: an event can be opened blank and titled later.
+const createCollectionSchema = z.strictObject({
+  // Optional: a collection can be opened blank and titled later.
   title: title.or(z.literal("")).default(""),
   description: description.default(""),
   tags: tags.default([]),
@@ -41,7 +41,7 @@ const createEventSchema = z.strictObject({
 });
 
 // Status is NOT editable here; it has its own endpoint with transition rules.
-const updateEventSchema = atLeastOneField(
+const updateCollectionSchema = atLeastOneField(
   z.strictObject({
     title: title.optional(),
     description: description.optional(),
@@ -50,8 +50,8 @@ const updateEventSchema = atLeastOneField(
 );
 
 const statusSchema = z.strictObject({
-  status: z.enum(EVENT_STATUSES.filter((s) => s !== "new"), {
-    error: `Status must be one of: ${EVENT_STATUSES.filter((s) => s !== "new").join(", ")}`,
+  status: z.enum(COLLECTION_STATUSES.filter((s) => s !== "new"), {
+    error: `Status must be one of: ${COLLECTION_STATUSES.filter((s) => s !== "new").join(", ")}`,
   }),
 });
 
@@ -63,8 +63,8 @@ const renameRowSchema = z.strictObject({ name: rowName });
 const addCollaboratorSchema = z.strictObject({ userId: objectIdString });
 
 module.exports = {
-  createEventSchema,
-  updateEventSchema,
+  createCollectionSchema,
+  updateCollectionSchema,
   statusSchema,
   addCollaboratorSchema,
   addRowSchema,

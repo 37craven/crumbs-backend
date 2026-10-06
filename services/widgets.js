@@ -50,18 +50,18 @@ async function applyWidgetData(widget, data) {
 }
 
 // Adds a widget to the end of a row. `data` is the optional starting content.
-async function addWidget(event, userId, rowId, type, data = {}) {
-  if (!event.rows.some((row) => String(row._id) === String(rowId))) {
+async function addWidget(collection, userId, rowId, type, data = {}) {
+  if (!collection.rows.some((row) => String(row._id) === String(rowId))) {
     throw new HttpError(404, "Row not found");
   }
 
-  const existing = await Widget.find({ event: event._id, row: rowId }).select("order").lean();
+  const existing = await Widget.find({ collectionId: collection._id, row: rowId }).select("order").lean();
   if (existing.length >= MAX_WIDGETS_PER_ROW) {
     throw new HttpError(400, `A row can hold at most ${MAX_WIDGETS_PER_ROW} widgets`);
   }
 
   const order = existing.length ? Math.max(...existing.map((w) => w.order)) + 1 : 0;
-  const widget = new widgetModels[type]({ event: event._id, row: rowId, createdBy: userId, order });
+  const widget = new widgetModels[type]({ collectionId: collection._id, row: rowId, createdBy: userId, order });
 
   await applyWidgetData(widget, data);
   await widget.save();

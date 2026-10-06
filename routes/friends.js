@@ -8,7 +8,7 @@ const HttpError = require("../utils/httpError");
 const { parseOrThrow } = require("../validators/common");
 const { sendRequestSchema, userSearchSchema } = require("../validators/friends");
 const { getFriendIds, relationshipOf } = require("../services/friends");
-const { escapeRegex } = require("../services/eventSearch");
+const { escapeRegex } = require("../services/collectionSearch");
 
 const router = express.Router();
 
@@ -151,7 +151,7 @@ router.delete("/requests/:id", async (req, res) => {
 });
 
 // DELETE /api/friends/:userId — stop being friends.
-// Events already shared stay shared; the creator can remove people from an event.
+// Collections already shared stay shared; the creator can remove people from a collection.
 router.delete("/:userId", async (req, res) => {
   const removed = await Friendship.findOneAndDelete({
     pairKey: pairKeyFor(req.user._id, req.params.userId),
