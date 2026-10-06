@@ -1,0 +1,17 @@
+node_modules
+
+# Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+.DS_Store
+
+# Uploaded images (recreate with: npm run seed)
+uploads
