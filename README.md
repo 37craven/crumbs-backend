@@ -98,9 +98,15 @@ Base path `/api/auth`. Auth is a JWT in an **httpOnly cookie**, so browsers need
 | POST | `/api/auth/login` | Sign in. `401` on bad credentials |
 | POST | `/api/auth/logout` | Clear the cookie |
 | GET | `/api/auth/me` | Current user, or `401` |
+| PATCH | `/api/auth/me` | Change `firstName`, `lastName`, `username`, `email` (all four). `409` with per-field messages if taken |
+| POST | `/api/auth/password` | Change password. `400` if `currentPassword` is wrong or unchanged. `204` on success |
+| PUT | `/api/auth/avatar` | Set the profile photo (`multipart/form-data`, field `image`, 1 MB max). Replaces the old one and deletes its file |
+| DELETE | `/api/auth/avatar` | Remove the profile photo, back to the initial. Deletes the file |
 | GET | `/health` | Liveness plus database connection state |
 
-Login and register are rate limited to 10 attempts per 15 minutes per IP. On a shared network this can throttle colleagues; the window resets on its own.
+Login and register are rate limited to 10 attempts per 15 minutes per IP. On a shared network this can throttle colleagues; the window resets on its own. Password changes get their own window of the same size.
+
+`GET /me` also returns `friendsCount`. Other people are only ever described by `id`, `username`, `firstName`, `lastName` and `avatarUrl` — never an email.
 
 `GET /` returns a plain `Crumbs API` string and is not part of the API.
 
@@ -182,7 +188,32 @@ Any widget type can be added to any row, any number of times (up to 30 widgets p
 | DELETE | `/api/friends/requests/:id` | Decline a request sent to me, or cancel one I sent |
 | DELETE | `/api/friends/:userId` | Stop being friends. Collections already shared stay shared |
 
-Only `id` and `username` of other people are ever returned, never emails.
+People are described by `id`, `username`, `firstName`, `lastName` and `avatarUrl`. Emails are never returned for anybody but yourself.
+
+### Crumbs
+
+A **crumb** is one photo on the signed-in user's Crumbs page. It is deliberately separate from a collection's image widgets: crumbs are a personal timeline, collections are shared and edited by several people. An upload can do both at once.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/crumbs` | My crumbs, newest first |
+| POST | `/api/crumbs` | Upload a photo (`multipart/form-data`, field `image`, 5 MB max). Optional fields: `caption` (60 characters), `collectionId` |
+| DELETE | `/api/crumbs/:id` | Remove one of my crumbs |
+
+**Filing a crumb into a collection.** Sending `collectionId` also files the picture into that collection as an image widget on its **first row**. You must be able to edit the collection, or you get a `404` like anyone else would.
+
+The response says what happened:
+
+```json
+{
+  "crumb": { "id": "6650c1...", "imageUrl": "/uploads/8f2a....jpg", "caption": "sunrise", "collectionId": "6650f1...", "createdAt": "..." },
+  "filedInCollection": true,
+  "collectionCopyError": null
+}
+```
+
+- **One file, two records.** The crumb and the widget point at the same file on disk. Deleting either one leaves the file in place while the other still needs it.
+- **A refused copy does not lose the photo.** If the collection is gone or not yours, the crumb is still saved, `collectionId` comes back `null` and `collectionCopyError` explains why.
 
 ### Search filters
 
@@ -213,7 +244,9 @@ All filters are optional and combine with AND.
 - **Dates are calendar days.** They are stored as `YYYY-MM-DD` text, not timestamps, so a date never shifts across timezones. "Today" is decided by `APP_TIMEZONE`.
 - **Derived values are never stored.** `daysUntil`, `dateStatus`, `isOverdue` and `role` are worked out on every read.
 - **Link safety.** Pasted links are fetched by the server to build the preview. Private, local and non-http(s) addresses are refused, redirects are re-checked, and responses are capped at 512 KB and 5 seconds. A site that cannot be reached still saves, with `preview.status: "unavailable"`.
-- **Pictures.** JPEG, PNG, WebP or GIF, up to 5 MB, one per image widget. Files are stored in `uploads/` under random names and served from `/uploads/<name>`. Replacing or removing a picture, or deleting its widget, row or collection, deletes the file.
+- **Pictures.** JPEG, PNG, WebP or GIF, up to 5 MB, one per image widget. Files are stored in `uploads/` under random names and served from `/uploads/<name>`. Replacing or removing a picture, or deleting its widget, row or collection, deletes the file. A profile photo has the same rules with a 1 MB limit.
+- **One file can back two records.** A crumb filed into a collection shares its file with that collection's image widget. The file is only deleted once nothing refers to it any more.
+- **Names.** `firstName` and `lastName` are each up to 50 characters and may be empty. Accounts created before the split kept one `name` field: it is read as a fallback and cleared the next time the profile is saved.
 
 ### Sample: create a collection, then build it up
 
@@ -283,11 +316,11 @@ server.js               loads .env, connects to MongoDB, syncs indexes, starts l
 app.js                  middleware and route mounting only
 config/database.js      live/sandbox names and the guard
 config/uploads.js       upload folder, size and type limits
-models/                 User, Collection, Widget (+ notes/image/date/link types), Friendship
-routes/                 auth, collections, rows, widgets, links, friends, health
+models/                 User, Collection, Widget (+ notes/image/date/link types), Friendship, Crumb
+routes/                 auth, collections, rows, widgets, links, friends, crumbs, health
 validators/             Zod schemas for request bodies and query strings
 services/               business logic: access rules, friends, status rules, card tiles, search,
-                        summaries, link previews, serializers, payload builders
+                        summaries, link previews, serializers, payload builders, crumbs
 middleware/             auth, logger, 404, error handler, id check, uploads
 utils/                  dates, HttpError
 scripts/                reset-sandbox, seed, smoke
@@ -303,9 +336,12 @@ uploads/                uploaded images (git-ignored)
 - Routes parse input and shape output; rules live in `services/`.
 - The `password` field is `select: false`, so it never comes back from a query. Use `.select("+password")` only to compare a hash.
 - `usernameLower` is the case-insensitive unique key; `username` keeps the display casing. A pre-validate hook keeps them in sync — do not set either directly.
-- Never return a User document directly; call `.toPublic()`.
+- Never return a User document directly; call `.toPublic()` for yourself and `.toSummary()` for anybody else. Neither ever includes the password or, for other people, the email.
+- Uploaded files are referenced by `filename` in the database and `url` in responses. `filename` is never sent to clients. `services/imageFiles.js` owns deleting files, and `publicUrl()` builds the address.
+- Anything that deletes a file has to consider that one file may back both a crumb and an image widget — use `services/crumbs.js:removeFileUnlessShared()`.
 
 ## Notes
 
 - Changing an indexed field does not rebuild the index. Drop it manually.
 - In production, cookies are marked `secure`, so the app must be served over HTTPS or sign-in will fail silently.
+- Renaming a Mongoose model renames the JavaScript side only. `syncIndexes()` in `server.js` does not rename the MongoDB collection, so an old `events` collection is left behind — run `npm run db:reset` after the Collection rename.
