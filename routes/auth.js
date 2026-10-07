@@ -260,6 +260,31 @@ router.get("/friends", requireAuth, async (req, res) => {
   res.json({ friends: friends.map((friend) => friend.toSummary()) });
 });
 
+const SUGGESTION_LIMIT = 8;
+
+// People the user isn't friends with yet. Friends-of-friends come first, then
+// the newest accounts to fill the list. Only summary fields are returned.
+router.get("/friends/suggestions", requireAuth, async (req, res) => {
+  const exclude = [req.user._id, ...req.user.friends];
+
+  const mutual = await User.find({
+    _id: { $nin: exclude },
+    friends: { $in: req.user.friends },
+  }).limit(SUGGESTION_LIMIT);
+
+  const remaining = SUGGESTION_LIMIT - mutual.length;
+  const others =
+    remaining > 0
+      ? await User.find({
+          _id: { $nin: [...exclude, ...mutual.map((u) => u._id)] },
+        })
+          .sort({ createdAt: -1 })
+          .limit(remaining)
+      : [];
+
+  res.json({ suggestions: [...mutual, ...others].map((u) => u.toSummary()) });
+});
+
 router.get("/avatar/:id", async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
     return res.status(404).end();
