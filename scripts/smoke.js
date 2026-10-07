@@ -8,6 +8,12 @@
 // walks through creating, sharing, editing and deleting a collection with rows and widgets. It prints
 // PASS or FAIL for every step and exits with code 1 if anything failed.
 // Leftover smoke accounts: npm run db:reset.
+//
+// Registration now creates an UNVERIFIED account and deliberately does not sign
+// you in, so smoke checks that gate and then marks its own throwaway accounts
+// verified. It does that through the database, because the verification token is
+// only ever delivered by email and only its hash is stored. Every other step
+// stays a real HTTP request.
 
 const BASE = process.env.API_URL ?? "http://localhost:3000";
 const NO_SUCH_ID = "000000000000000000000000";
@@ -35,24 +41,96 @@ const inDays = (n) => new Date(Date.now() + n * 24 * 3600 * 1000).toISOString().
 const inAWeek = inDays(7);
 const inTwoWeeks = inDays(14);
 
-async function register(who, name, tag) {
-  const res = await call(who, "POST", "/api/auth/register", {
-    json: { username: `${name}_${tag}`, email: `${name}_${tag}@crumbs.test`, password: "Password123!" },
+// Stable usernames, so repeated runs REUSE the same two accounts. Creating a
+// fresh pair every run buried the sandbox in throwaway users and, because each
+// registration counts against the per-address rate limit, made the harness
+// throttle itself after a few runs.
+const SMOKE_ACCOUNTS = { ann: "smoke_ann", ben: "smoke_ben" };
+const SMOKE_PASSWORD = "Password123!";
+
+// Registers the account if it is not there yet. Reports how it got there:
+// { kind: "new" | "reused" | "failed" }. On a reused account the address is
+// confirmed straight away, since the run before it should have.
+async function ensureAccount(who, name) {
+  const username = SMOKE_ACCOUNTS[name];
+  const email = `${username}@crumbs.test`;
+
+  const attempt = await call(who, "POST", "/api/auth/register", {
+    json: { username, email, password: SMOKE_PASSWORD },
   });
-  who.id = res.json?.user?.id ?? "";
-  return res;
+
+  if (attempt.status === 201) {
+    who.id = attempt.json.user.id;
+    return { kind: "new", unverified: attempt.json.user.emailVerified === false };
+  }
+
+  // 409 means it already exists, which is the normal case from the second run.
+  // No login attempt here: main() signs both in straight after, and every auth
+  // call counts against the per-address rate limit.
+  if (attempt.status === 409) {
+    await confirmAccounts([username]);
+    return { kind: "reused" };
+  }
+
+  return { kind: "failed", status: attempt.status };
+}
+
+// Marks the two throwaway accounts verified. The only step that touches the
+// database directly, and only because the emailed token cannot be read from here.
+async function confirmAccounts(usernames) {
+  process.loadEnvFile();
+  const mongoose = require("mongoose");
+  await mongoose.connect(process.env.MONGODB_URI);
+  // Matched on username, not _id: the ids arrive here as strings and Mongo
+  // compares types strictly, so a string never matches an ObjectId.
+  const result = await mongoose.connection.db
+    .collection("users")
+    .updateMany(
+      { username: { $in: usernames } },
+      { $set: { emailVerified: true, emailVerifiedAt: new Date() } },
+    );
+  if (result.modifiedCount !== usernames.length) {
+    console.log(`WARN  could only confirm ${result.modifiedCount}/${usernames.length} accounts`);
+  }
+  await mongoose.disconnect();
 }
 
 async function main() {
+  // Only used to keep this run's collection titles and tags distinct, so a
+  // leftover from an earlier run is easy to recognise and delete.
   const tag = Math.random().toString(36).slice(2, 7);
 
-  // ---- Accounts and friendship ---------------------------------------------
-  const a = await register(ann, "ann", tag);
-  const b = await register(ben, "ben", tag);
-  check("register two throwaway accounts", a.status === 201 && b.status === 201, `${a.status}/${b.status}`);
-  if (a.status !== 201 || b.status !== 201) return;
+  // ---- Accounts, email verification and friendship ------------------------
+  const a = await ensureAccount(ann, "ann");
+  const b = await ensureAccount(ben, "ben");
+  check(
+    "two smoke accounts ready",
+    (a.kind === "new" || a.kind === "reused") && (b.kind === "new" || b.kind === "reused"),
+    `ann:${a.kind} ben:${b.kind}`,
+  );
+  if (a.kind === "failed" || b.kind === "failed") return;
 
-  const found = await call(ann, "GET", `/api/friends/search?q=ben_${tag}`);
+  if (a.kind === "new") {
+    // Free assertions: the register response already tells us both facts. The
+    // refusal itself (login -> 403) is covered in tests/email.test.js, where
+    // rate limiting is inert.
+    check(
+      "a new account is unverified and is not signed in",
+      a.unverified === true && ann.cookie === "",
+    );
+  }
+
+  for (const who of [ann, ben]) {
+    const name = who === ann ? "ann" : "ben";
+    const email = `${SMOKE_ACCOUNTS[name]}@crumbs.test`;
+    const res = await call(who, "POST", "/api/auth/login", { json: { email, password: SMOKE_PASSWORD } });
+    // The id is needed by everything below; on the reuse path nothing else sets it.
+    who.id = res.json?.user?.id ?? who.id;
+    check(`${name} signs in`, res.status === 200 && who.cookie !== "", `${res.status}`);
+    if (res.status !== 200) return;
+  }
+
+  const found = await call(ann, "GET", `/api/friends/search?q=${SMOKE_ACCOUNTS.ben}`);
   check("search finds Ben, relationship none", found.json?.users?.[0]?.id === ben.id && found.json.users[0].relationship === "none");
   check("search needs 2+ characters -> 400", (await call(ann, "GET", "/api/friends/search?q=a")).status === 400);
 

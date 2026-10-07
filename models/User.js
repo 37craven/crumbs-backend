@@ -15,6 +15,17 @@ const avatarSchema = new Schema(
   { _id: false },
 );
 
+// A single-use token from an email link. Only the hash is stored, so reading
+// the database does not let anyone verify an address or reset a password.
+// See services/tokens.js.
+const tokenSchema = new Schema(
+  {
+    hash: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, trim: true, maxlength: 20 },
   usernameLower: { type: String, required: true, unique: true, index: true },
@@ -32,6 +43,16 @@ const userSchema = new mongoose.Schema({
   name: { type: String, trim: true, maxlength: 50 },
   avatar: { type: avatarSchema, default: null },
   password: { type: String, required: true, select: false },
+
+  // ---- Email verification --------------------------------------------------
+  // There is deliberately NO default: an account with no value is one that
+  // predates verification, which scripts/verify-existing-accounts.js resolves.
+  emailVerified: { type: Boolean },
+  emailVerifiedAt: { type: Date },
+  // Never returned by any query that does not ask for it.
+  emailVerifyToken: { type: tokenSchema, select: false },
+  passwordResetToken: { type: tokenSchema, select: false },
+
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -69,6 +90,9 @@ userSchema.methods.toPublic = function toPublic(extra = {}) {
   return {
     ...this.toSummary(),
     email: this.email,
+    // Only ever true or false here: an account with no recorded value predates
+    // verification and is treated as verified (see the schema comment).
+    emailVerified: this.emailVerified === true,
     createdAt: this.createdAt,
     ...extra,
   };

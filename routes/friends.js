@@ -8,6 +8,7 @@ const HttpError = require("../utils/httpError");
 const { parseOrThrow } = require("../validators/common");
 const { sendRequestSchema, userSearchSchema } = require("../validators/friends");
 const { getFriendIds, relationshipOf } = require("../services/friends");
+const { PERSON_FIELDS, personSummary, loadPeople } = require("../services/people");
 const { escapeRegex } = require("../services/collectionSearch");
 
 const router = express.Router();
@@ -17,26 +18,8 @@ router.param("id", validateObjectIdParam);
 router.param("userId", validateObjectIdParam);
 
 // What other users see about a person: id, username, names and photo, so a
-// friend list can be rendered. NEVER the email — see User.toSummary().
-const PERSON_FIELDS = "username firstName lastName name avatar";
-
-const person = (user) => {
-  const summary = new User(user).toSummary();
-  return {
-    id: summary.id,
-    username: summary.username,
-    firstName: summary.firstName,
-    lastName: summary.lastName,
-    avatarUrl: summary.avatarUrl,
-  };
-};
-
-async function loadPeople(ids) {
-  const users = await User.find({ _id: { $in: ids } })
-    .select(PERSON_FIELDS)
-    .lean();
-  return new Map(users.map((user) => [String(user._id), user]));
-}
+// friend list can be rendered. NEVER the email — see services/people.js.
+// loadPeople() already returns this shape, so its values are not wrapped again.
 
 // GET /api/friends — my friends, alphabetically.
 router.get("/", async (req, res) => {
@@ -46,7 +29,7 @@ router.get("/", async (req, res) => {
     .sort({ usernameLower: 1 })
     .lean();
 
-  res.json({ friends: users.map(person) });
+  res.json({ friends: users.map(personSummary) });
 });
 
 // GET /api/friends/requests — requests waiting for me, and ones I have sent.
@@ -64,7 +47,7 @@ router.get("/requests", async (req, res) => {
   );
   const shape = (row, otherId) => ({
     id: String(row._id),
-    user: person(people.get(String(otherId)) ?? { _id: otherId, username: null }),
+    user: people.get(String(otherId)) ?? { id: String(otherId), username: null },
     createdAt: row.createdAt,
   });
 
@@ -99,7 +82,7 @@ router.get("/search", async (req, res) => {
 
   res.json({
     users: users.map((user) => ({
-      ...person(user),
+      ...personSummary(user),
       relationship: relationshipOf(me, user._id, friendships),
     })),
   });
@@ -124,12 +107,12 @@ router.post("/requests", async (req, res) => {
     }
     existing.status = "accepted";
     await existing.save();
-    return res.json({ message: "You are now friends", friend: person(target) });
+    return res.json({ message: "You are now friends", friend: personSummary(target) });
   }
 
   const request = await Friendship.create({ requester: me, recipient: userId });
   res.status(201).json({
-    request: { id: String(request._id), user: person(target), status: request.status },
+    request: { id: String(request._id), user: personSummary(target), status: request.status },
   });
 });
 
@@ -146,7 +129,7 @@ router.patch("/requests/:id/accept", async (req, res) => {
   await request.save();
 
   const requester = await User.findById(request.requester).select(PERSON_FIELDS).lean();
-  res.json({ message: "You are now friends", friend: person(requester) });
+  res.json({ message: "You are now friends", friend: personSummary(requester) });
 });
 
 // DELETE /api/friends/requests/:id — decline a request sent to me, or cancel one I sent.

@@ -1,5 +1,5 @@
 const express = require("express");
-const { rateLimit } = require("express-rate-limit");
+const { limiter } = require("../config/rateLimits");
 const { requireAuth } = require("../middleware/auth");
 const { parseOrThrow } = require("../validators/common");
 const { linkPreviewSchema } = require("../validators/widget");
@@ -8,13 +8,12 @@ const { buildLinkData } = require("../services/linkPreview");
 const router = express.Router();
 
 // Each preview makes our server fetch a third-party page, so keep it bounded.
-const previewLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 30,
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: { message: "Too many link previews, try again in a minute" },
-});
+// Same production-only rule as the other limiters: off in development.
+const previewLimiter = limiter(
+  60 * 1000,
+  30,
+  "Too many link previews, try again in a minute",
+);
 
 // POST /api/links/preview — look up a link without saving it, so the Add Collection
 // page can show the thumbnail as soon as the user pastes the address.
