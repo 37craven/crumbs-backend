@@ -12,6 +12,7 @@ const collectionRoutes = require("./routes/collections");
 const widgetRoutes = require("./routes/widgets");
 const linkRoutes = require("./routes/links");
 const friendRoutes = require("./routes/friends");
+const userRoutes = require("./routes/users");
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use("/api/collections", collectionRoutes);
 app.use("/api/widgets", widgetRoutes);
 app.use("/api/links", linkRoutes);
 app.use("/api/friends", friendRoutes);
+app.use("/api/users", userRoutes);
 
 // 4. Order matters: unmatched URLs -> 404, then errors from anywhere above.
 app.use(notFound);

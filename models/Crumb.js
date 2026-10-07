@@ -31,6 +31,15 @@ const crumbSchema = new mongoose.Schema(
       default: null,
     },
     createdAt: { type: Date, default: Date.now },
+
+    // ---- LEGACY, read-only -------------------------------------------------
+    // Crumbs written before pictures moved onto disk kept the image INSIDE the
+    // document as a Buffer. They have no `url` and are served instead from
+    // GET /api/crumbs/:id/image. Nothing writes these fields any more; they
+    // exist so old photos keep showing. `scripts/migrate-legacy-crumbs.js`
+    // moves them onto disk and these can go.
+    imageData: { type: Buffer, select: false },
+    contentType: { type: String },
   },
   { timestamps: { createdAt: false, updatedAt: false } },
 );
@@ -38,10 +47,18 @@ const crumbSchema = new mongoose.Schema(
 // Newest first, and only ever for one user.
 crumbSchema.index({ user: 1, createdAt: -1 });
 
+// True for a crumb whose picture is still a Buffer in the document.
+crumbSchema.methods.isLegacy = function isLegacy() {
+  return !this.url && Boolean(this.imageData);
+};
+
 crumbSchema.methods.toPublic = function toPublic() {
+  const id = this._id.toString();
+
   return {
-    id: this._id.toString(),
-    imageUrl: this.url,
+    id,
+    // A legacy crumb has no file on disk, so it is served from its own route.
+    imageUrl: this.url ?? `/api/crumbs/${id}/image`,
     caption: this.caption,
     collectionId: this.collectionId ? this.collectionId.toString() : null,
     createdAt: this.createdAt,

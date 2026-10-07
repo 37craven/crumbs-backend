@@ -62,6 +62,29 @@ Crumb.deleteOne = async ({ _id }) => {
   if (i >= 0) crumbs.splice(i, 1);
 };
 
+// The legacy image route reads one crumb with the normally-hidden imageData.
+Crumb.findById = (id) => {
+  const found = crumbs.find((c) => String(c._id) === String(id)) ?? null;
+  return { select: async () => found };
+};
+
+// A crumb written before pictures moved onto disk: a Buffer in the document
+// and no url. It is a real document, because routes/crumbs.js calls isLegacy()
+// on it. Note the missing `url` and `filename`: the schema requires them, but
+// validation only runs on save, so an old document still reads fine.
+function legacyCrumb(fields = {}) {
+  const doc = new Crumb({
+    user: userId,
+    imageData: PNG,
+    contentType: "image/png",
+    caption: "",
+    createdAt: new Date(1000),
+    ...fields,
+  });
+  crumbs.push(doc);
+  return doc._id;
+}
+
 Collection.findOne = (filter) => ({
   lean: async () =>
     accessibleCollections.has(String(filter._id))
@@ -338,4 +361,55 @@ test("a malformed crumb id -> 400 before the database is touched", async () => {
   const { status, json } = await send("DELETE", "/api/crumbs/not-an-id");
   assert.equal(status, 400);
   assert.match(json.message, /Invalid/);
+});
+
+// ---- Crumbs written before pictures moved onto disk ---------------------------
+// These hold a Buffer in the document and have no url. They must keep working,
+// so toPublic() points at the legacy image route and that route serves the
+// bytes.
+test("a legacy crumb falls back to its own image route", async () => {
+  const id = legacyCrumb({ caption: "SF25" });
+
+  const { status, json } = await send("GET", "/api/crumbs");
+  assert.equal(status, 200);
+
+  const crumb = json.crumbs.find((c) => c.id === String(id));
+  assert.equal(crumb.imageUrl, `/api/crumbs/${id}/image`);
+  assert.equal(crumb.caption, "SF25");
+});
+
+test("a modern crumb is NOT given the legacy url", async () => {
+  await send("POST", "/api/crumbs", { files: [png()] });
+
+  const { json } = await send("GET", "/api/crumbs");
+  assert.match(json.crumbs[0].imageUrl, /^\/uploads\/[\w-]+\.png$/);
+});
+
+test("the legacy image route serves the stored bytes", async () => {
+  const id = legacyCrumb();
+
+  const res = await fetch(`${base}/api/crumbs/${id}/image`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "image/png");
+  assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), PNG);
+});
+
+test("the legacy image route needs no sign-in, so a photo can load in an <img>", async () => {
+  const id = legacyCrumb();
+
+  const res = await fetch(`${base}/api/crumbs/${id}/image`);
+  assert.equal(res.status, 200);
+});
+
+test("a modern crumb is 404 on the legacy route; its picture lives in /uploads", async () => {
+  const created = await send("POST", "/api/crumbs", { files: [png()] });
+
+  const res = await fetch(`${base}/api/crumbs/${created.json.crumb.id}/image`);
+  assert.equal(res.status, 404);
+});
+
+test("the legacy image route 404s an unknown crumb", async () => {
+  const res = await fetch(`${base}/api/crumbs/${new mongoose.Types.ObjectId()}/image`);
+  assert.equal(res.status, 404);
 });

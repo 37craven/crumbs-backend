@@ -10,9 +10,36 @@ const { createCrumb, removeFileUnlessShared } = require("../services/crumbs");
 
 const router = express.Router();
 
-// Every crumb route belongs to the signed-in user alone.
-router.use(requireAuth);
 router.param("id", validateObjectIdParam); // reject malformed ids with a 400
+
+// GET /api/crumbs/:id/image — serves a LEGACY crumb's picture, the ones written
+// before pictures moved onto disk and still stored as a Buffer in the document.
+// Current crumbs are served from /uploads/ and never come here.
+//
+// This sits ABOVE requireAuth, and that is deliberate: it is how it behaved
+// before the move to disk, and /uploads/ is public too, so the Crumbs page can
+// load its pictures the same way regardless of which storage a crumb uses. The
+// id is an unguessable ObjectId and the response is cached hard.
+router.get("/:id/image", async (req, res) => {
+  const crumb = await Crumb.findById(req.params.id).select("+imageData");
+
+  if (!crumb?.isLegacy()) {
+    // Either it does not exist, or its picture lives on disk and its own url
+    // already points there. Answering 404 keeps this from serving new pictures
+    // through a route meant only for old ones.
+    return res.status(404).end();
+  }
+
+  res.set({
+    "Content-Type": crumb.contentType || "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.send(Buffer.from(crumb.imageData));
+});
+
+// Everything below belongs to the signed-in user alone.
+router.use(requireAuth);
 
 // GET /api/crumbs — my crumbs, newest first.
 router.get("/", async (req, res) => {

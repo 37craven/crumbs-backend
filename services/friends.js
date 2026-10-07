@@ -1,4 +1,5 @@
 const Friendship = require("../models/Friendship");
+const { pairKeyFor } = Friendship;
 const HttpError = require("../utils/httpError");
 
 // Ids of everyone the user is friends with (accepted friendships only).
@@ -49,4 +50,45 @@ function relationshipOf(userId, otherId, friendships) {
   return String(row.requester) === String(userId) ? "request_sent" : "request_received";
 }
 
-module.exports = { getFriendIds, assertCanInvite, relationshipOf };
+// Are these two people accepted friends? One indexed lookup: pairKey is unique,
+// so there can only ever be one record for the pair.
+async function isFriend(userId, otherId) {
+  if (String(userId) === String(otherId)) return false;
+
+  const row = await Friendship.findOne({
+    pairKey: pairKeyFor(userId, otherId),
+    status: "accepted",
+  })
+    .select("_id")
+    .lean();
+
+  return Boolean(row);
+}
+
+// How `userId` is connected to `otherId`: "friends", "request_sent",
+// "request_received" or "none". Also returns the pending request's id, because
+// the caller needs it to accept or cancel one.
+async function relationshipFor(userId, otherId) {
+  if (String(userId) === String(otherId)) return { relationship: "self", requestId: null };
+
+  const row = await Friendship.findOne({ pairKey: pairKeyFor(userId, otherId) })
+    .select("_id status requester recipient")
+    .lean();
+
+  if (!row) return { relationship: "none", requestId: null };
+  if (row.status === "accepted") return { relationship: "friends", requestId: null };
+
+  const mine = String(row.requester) === String(userId);
+  return {
+    relationship: mine ? "request_sent" : "request_received",
+    requestId: String(row._id),
+  };
+}
+
+module.exports = {
+  getFriendIds,
+  assertCanInvite,
+  relationshipOf,
+  isFriend,
+  relationshipFor,
+};

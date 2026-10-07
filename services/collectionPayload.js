@@ -1,23 +1,11 @@
 const User = require("../models/User");
 const { todayInTimezone } = require("../utils/dates");
 const { serializeCollection, serializeWidget, sortWidgets } = require("./serializers");
+const { PERSON_FIELDS, loadPeople } = require("./people");
 
-// What a collection card shows about a person. Same shape as
-// routes/friends.js's person(): id, username, names and photo, never the email.
-function personSummary(user) {
-  const summary = new User(user).toSummary();
-  return {
-    id: summary.id,
-    username: summary.username,
-    firstName: summary.firstName,
-    lastName: summary.lastName,
-    avatarUrl: summary.avatarUrl,
-  };
-}
-
-// Everything serializeCollection needs besides the collection itself: today's date, who is
-// asking, and the details of everyone who appears on these collections (one query
-// for all of them, not one per collection).
+// Everything serializeCollection needs besides the collection itself: today's
+// date, who is asking, and the details of everyone who appears on these
+// collections (one query for all of them, not one per collection).
 async function collectionContext(collections, viewerId) {
   const ids = new Set();
   for (const collection of collections) {
@@ -25,16 +13,14 @@ async function collectionContext(collections, viewerId) {
     for (const id of collection.collaborators ?? []) ids.add(String(id));
   }
 
-  const users = ids.size
-    ? await User.find({ _id: { $in: [...ids] } })
-        .select("username firstName lastName name avatar")
-        .lean()
-    : [];
+  // loadPeople gives the same person shape as the friends routes: id, username,
+  // names and photo, never an email.
+  const people = await loadPeople(ids);
 
   return {
     today: todayInTimezone(),
     viewerId: String(viewerId),
-    people: new Map(users.map((u) => [String(u._id), personSummary(u)])),
+    people,
   };
 }
 
@@ -58,4 +44,12 @@ async function collectionList(collections, viewerId) {
   return collections.map((collection) => serializeCollection(collection, ctx));
 }
 
-module.exports = { collectionContext, collectionPayload, collectionJson, collectionList };
+module.exports = {
+  collectionContext,
+  collectionPayload,
+  collectionJson,
+  collectionList,
+  // Re-exported so routes/users.js can serialize a collection without
+  // reaching into services/serializers.js for one call.
+  serializeCollection,
+};
