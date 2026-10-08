@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Crumb = require("../models/Crumb");
 const Collection = require("../models/Collection");
 const { requireAuth } = require("../middleware/auth");
+const { validateObjectIdParam } = require("../middleware/validateObjectId");
 const HttpError = require("../utils/httpError");
 const { parseOrThrow } = require("../validators/common");
 const { usernameParamSchema } = require("../validators/user");
@@ -15,6 +16,8 @@ const router = express.Router();
 // Every profile needs a signed-in user: the response says how YOU are connected
 // to the person, which only makes sense for a real account.
 router.use(requireAuth);
+router.param("id", validateObjectIdParam);
+router.param("userId", validateObjectIdParam);
 
 // A crumb list on someone else's profile is capped, so one huge timeline cannot
 // stall the page. Their own profile is not capped (see GET /api/crumbs).
@@ -65,6 +68,15 @@ router.get("/:username", async (req, res) => {
   };
 
   res.json({ user: profile });
+});
+
+// GET /api/users/id/:userId — one person's profile by user id.
+// Returns id, username, firstName, lastName, avatarUrl.
+router.get("/id/:userId", async (req, res) => {
+  const user = await User.findById(req.params.userId).select("username firstName lastName avatar").lean();
+  if (!user) throw new HttpError(404, "No such user");
+
+  res.json({ user: personSummary(user) });
 });
 
 // GET /api/users/:username/crumbs — that person's crumbs.

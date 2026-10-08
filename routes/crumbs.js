@@ -7,6 +7,7 @@ const HttpError = require("../utils/httpError");
 const { parseOrThrow } = require("../validators/common");
 const { createCrumbSchema } = require("../validators/crumb");
 const { createCrumb, removeFileUnlessShared } = require("../services/crumbs");
+const { getFriendIds } = require("../services/friends");
 
 const router = express.Router();
 
@@ -42,10 +43,22 @@ router.get("/:id/image", async (req, res) => {
 router.use(requireAuth);
 
 // GET /api/crumbs — my crumbs, newest first.
+// GET /api/crumbs?scope=all — my crumbs plus friends', newest first.
 router.get("/", async (req, res) => {
-  const crumbs = await Crumb.find({ user: req.user._id })
-    .sort({ createdAt: -1 })
-    .lean();
+  const scope = req.query.scope === 'all' ? 'all' : 'mine'
+
+  let crumbs
+  if (scope === 'all') {
+    const friendIds = await getFriendIds(req.user._id)
+    const userIds = [req.user._id.toString(), ...friendIds]
+    crumbs = await Crumb.find({ user: { $in: userIds } })
+      .sort({ createdAt: -1 })
+      .lean()
+  } else {
+    crumbs = await Crumb.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .lean()
+  }
 
   res.json({ crumbs: crumbs.map((crumb) => new Crumb(crumb).toPublic()) });
 });

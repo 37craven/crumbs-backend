@@ -8,6 +8,7 @@
     "dev": "node --watch server.js",
     "seed": "node scripts/seed.js",
     "db:reset": "node scripts/reset-sandbox.js",
+    "prune": "node scripts/prune-test-users.js",
     "migrate:crumbs": "node scripts/migrate-legacy-crumbs.js",
     "verify:existing": "node scripts/verify-existing-accounts.js",
     "mail:test": "node scripts/send-test-email.js",

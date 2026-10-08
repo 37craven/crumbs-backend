@@ -57,6 +57,7 @@ crumbSchema.methods.toPublic = function toPublic() {
 
   return {
     id,
+    userId: this.user.toString(),
     // A legacy crumb has no file on disk, so it is served from its own route.
     imageUrl: this.url ?? `/api/crumbs/${id}/image`,
     caption: this.caption,
