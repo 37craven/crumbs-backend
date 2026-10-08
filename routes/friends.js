@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Friendship = require("../models/Friendship");
 const { pairKeyFor } = require("../models/Friendship");
@@ -30,6 +31,38 @@ router.get("/", async (req, res) => {
     .lean();
 
   res.json({ friends: users.map(personSummary) });
+});
+
+// How many people the "Suggested friends" strip shows.
+const SUGGESTION_COUNT = 5;
+
+// GET /api/friends/suggestions — a few random people I may want to add.
+// Never me, my friends, or anyone I already have a pending request with, in
+// either direction. A different handful comes back on each call.
+router.get("/suggestions", async (req, res) => {
+  const me = req.user._id;
+
+  const connected = await Friendship.find({
+    $or: [{ requester: me }, { recipient: me }],
+  }).lean();
+  const exclude = new Set([String(me)]);
+  for (const row of connected) {
+    exclude.add(String(row.requester));
+    exclude.add(String(row.recipient));
+  }
+
+  // $sample draws the random users inside the database, so the whole user
+  // table is never loaded just to shuffle it. aggregate() does not cast ids
+  // the way find() does, hence the explicit ObjectIds.
+  const sampled = await User.aggregate([
+    { $match: { _id: { $nin: [...exclude].map((id) => new mongoose.Types.ObjectId(id)) } } },
+    { $sample: { size: SUGGESTION_COUNT } },
+    { $project: { _id: 1 } },
+  ]);
+
+  const ids = sampled.map((user) => String(user._id));
+  const people = await loadPeople(ids);
+  res.json({ suggestions: ids.map((id) => people.get(id)).filter(Boolean) });
 });
 
 // GET /api/friends/requests — requests waiting for me, and ones I have sent.
@@ -159,4 +192,4 @@ router.delete("/:userId", async (req, res) => {
   res.json({ message: "Friend removed" });
 });
 
-module.exports = router;
+module.exports = router;  
