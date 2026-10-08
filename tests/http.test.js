@@ -50,7 +50,7 @@ test("unknown route -> 404 JSON", async () => {
 });
 
 test("no cookie -> 401", async () => {
-  for (const path of ["/api/collections", "/api/collections/search", `/api/widgets/${validId}`, "/api/friends", "/api/friends/requests", "/api/crumbs"]) {
+  for (const path of ["/api/collections", "/api/collections/search", `/api/widgets/${validId}`, "/api/friends", "/api/friends/requests", "/api/friends/suggestions", "/api/crumbs"]) {
     const { status, json } = await call("GET", path, { auth: false });
     assert.equal(status, 401, path);
     assert.equal(json.message, "Not authenticated");

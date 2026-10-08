@@ -181,6 +181,7 @@ Any widget type can be added to any row, any number of times (up to 30 widgets p
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/friends` | My friends |
+| GET | `/api/friends/suggestions` | Up to 10 people you might know, best first. Each has a `reason`: `n mutual friends`, `n shared collections`, or `New on Crumbs` |
 | GET | `/api/friends/search?q=ma` | Find people by username (2+ characters). Each result has a `relationship`: `none`, `friends`, `request_sent`, `request_received` |
 | GET | `/api/friends/requests` | Requests waiting for me (`incoming`) and ones I sent (`outgoing`) |
 | POST | `/api/friends/requests` | Send a request. Body `{ "userId": "..." }`. If they already asked me, this accepts it |
@@ -189,6 +190,8 @@ Any widget type can be added to any row, any number of times (up to 30 widgets p
 | DELETE | `/api/friends/:userId` | Stop being friends. Collections already shared stay shared |
 
 People are described by `id`, `username`, `firstName`, `lastName` and `avatarUrl`. Emails are never returned for anybody but yourself.
+
+`/api/friends/suggestions` backs the profile page's "People you may know". It ranks strangers by mutual friends first, then shared collections, then who joined most recently, and leaves out yourself, your friends and anyone you already have a pending request with. See `services/suggestions.js`. Fewer than ten — or none — is a normal answer.
 
 ### Crumbs
 

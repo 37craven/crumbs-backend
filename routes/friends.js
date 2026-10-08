@@ -8,6 +8,7 @@ const HttpError = require("../utils/httpError");
 const { parseOrThrow } = require("../validators/common");
 const { sendRequestSchema, userSearchSchema } = require("../validators/friends");
 const { getFriendIds, relationshipOf } = require("../services/friends");
+const { suggestionsFor, MAX_SUGGESTIONS } = require("../services/suggestions");
 const { PERSON_FIELDS, personSummary, loadPeople } = require("../services/people");
 const { escapeRegex } = require("../services/collectionSearch");
 
@@ -30,6 +31,20 @@ router.get("/", async (req, res) => {
     .lean();
 
   res.json({ friends: users.map(personSummary) });
+});
+
+// GET /api/friends/suggestions — people you might know, best first.
+//
+// Every suggestion is by definition a stranger: services/suggestions.js leaves
+// out yourself, your friends and anyone you already have a request pending with.
+// `reason` says why they were picked, so the UI can show it. Fewer than ten is a
+// normal answer — a new account may have nobody left to meet.
+router.get("/suggestions", async (req, res) => {
+  const found = await suggestionsFor(req.user._id, { limit: MAX_SUGGESTIONS });
+
+  res.json({
+    suggestions: found.map(({ user, reason }) => ({ ...personSummary(user), reason })),
+  });
 });
 
 // GET /api/friends/requests — requests waiting for me, and ones I have sent.
