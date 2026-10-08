@@ -98,9 +98,18 @@ Base path `/api/auth`. Auth is a JWT in an **httpOnly cookie**, so browsers need
 | POST | `/api/auth/login` | Sign in. `401` on bad credentials |
 | POST | `/api/auth/logout` | Clear the cookie |
 | GET | `/api/auth/me` | Current user, or `401` |
+| PATCH | `/api/auth/me` | Update `firstName`, `lastName`, `username`, `email`. `409` with per-field errors if taken |
+| POST | `/api/auth/password` | Change password. `400` if `currentPassword` is wrong. `204` on success |
+| PUT | `/api/auth/avatar` | Upload a profile photo as the raw request body (JPEG, PNG or WebP, 1 MB max). Returns the user |
+| DELETE | `/api/auth/avatar` | Remove the profile photo. Returns the user |
+| GET | `/api/auth/friends` | The current user's friends (id, username, names, photo only), sorted by username |
+| GET | `/api/crumbs` | The current user's crumbs, newest first |
+| POST | `/api/crumbs?caption=...` | Upload a photo as the raw request body (JPEG, PNG or WebP, 3 MB max) with an optional caption of up to 140 characters. Returns the crumb |
+| GET | `/api/crumbs/:id/image` | Serve a crumb's photo. Public and cached for a year |
+| GET | `/api/auth/avatar/:id` | Serve a user's photo. Public and cached for a year; the `avatarUrl` carries a `?v=` version |
 | GET | `/health` | Liveness plus database connection state |
 
-Login and register are rate limited to 10 attempts per 15 minutes per IP. On a shared network this can throttle colleagues; the window resets on its own.
+Login and register are rate limited to 10 attempts per 15 minutes per IP. On a shared network this can throttle colleagues; the window resets on its own. Password changes have their own separate limit of the same size.
 
 `GET /` returns a plain `Crumbs API` string and is not part of the API.
 
@@ -309,3 +318,4 @@ uploads/                uploaded images (git-ignored)
 
 - Changing an indexed field does not rebuild the index. Drop it manually.
 - In production, cookies are marked `secure`, so the app must be served over HTTPS or sign-in will fail silently.
+- Profile photos are stored in MongoDB (`avatarData`) and are not returned by normal queries. The web client resizes them to 256 px before upload, so they stay small.
