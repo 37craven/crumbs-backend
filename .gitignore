@@ -12,3 +12,6 @@ logs
 npm-debug.log*
 
 .DS_Store
+
+# Uploaded images (recreate with: npm run seed)
+uploads
