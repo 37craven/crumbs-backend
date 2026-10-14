@@ -1,31 +1,30 @@
-// One-off. Moves crumbs written by the old Buffer-in-Mongo model onto disk.
+// One-off. Folds crumbs written by the old picture-in-document layout into the
+// `image` subdocument every picture now uses.
 //
-// Before this, a crumb stored its picture in the document as `imageData` (a
-// Mongo Buffer) plus `contentType`, and was served from /api/crumbs/:id/image.
-// It now stores a file in uploads/ like every other picture, and carries
-// `url`. Old documents have no `url`, so the API returned imageUrl: undefined
-// and the client rejected the whole list.
+// Before this, a crumb carried loose top-level fields — `filename` and `url`
+// pointing at a file in uploads/, or on the earliest iteration `imageData` (a
+// Mongo Buffer) with a `contentType`. Pictures now live inside an `image`
+// subdocument (see models/Image.js), so a record and its picture travel together.
 //
-// This writes those pictures to disk, points each crumb at its file, and drops
-// the old fields. It is safe to run twice: a crumb that already has a url is
-// left alone.
+// This handles both old shapes: a crumb holding `imageData` gets those bytes
+// moved into `image.data`, and a crumb still pointing at a file in uploads/ has
+// that file read and moved in. It is safe to run twice — a crumb that already has
+// an `image` is left alone.
 //
 //   npm run migrate:crumbs
 //
-// Nothing here is undone automatically. Keep a copy of the database if the old
-// Buffer form matters to you.
+// Run `npm run prune` afterwards to delete the now-unreferenced files left in
+// uploads/, then the folder can be removed from .gitignore and deleted.
 
-const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const mongoose = require("mongoose");
 
 process.loadEnvFile();
 
+const { LEGACY_UPLOAD_DIR } = require("../config/uploads");
 const Crumb = require("../models/Crumb");
-const { UPLOAD_DIR } = require("../config/uploads");
 const { ALLOWED_IMAGE_TYPES } = require("../config/uploads");
-const { assertSafeDatabase } = require("../config/database");
 
 // A picture stored in a document comes back from MongoDB as BSON Binary, whose
 // `length` is a METHOD (it returns `position`) and whose `buffer` may be a
@@ -44,10 +43,14 @@ function readBytes(stored) {
 }
 
 async function migrate() {
-  assertSafeDatabase(process.env.MONGODB_URI ?? "");
+  await mongoose.connect(process.env.MONGODB_URI);
 
+  // Both old shapes at once: bytes loose in the document, or a file on disk.
   const legacy = await Crumb.collection
-    .find({ imageData: { $exists: true } })
+    .find({
+      image: { $exists: false },
+      $or: [{ imageData: { $exists: true } }, { filename: { $exists: true } }],
+    })
     .toArray();
 
   if (legacy.length === 0) {
@@ -55,52 +58,62 @@ async function migrate() {
     return;
   }
 
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
-
   let moved = 0;
   let skipped = 0;
 
   for (const crumb of legacy) {
-    const mimeType = crumb.contentType;
+    let bytes = null;
+    let mimeType = null;
 
-    // An extension only ever comes from this table, never from stored data.
-    const extension = ALLOWED_IMAGE_TYPES.get(mimeType);
-    if (!extension) {
-      console.warn(
-        `  skipped ${crumb._id}: ${mimeType ?? "no content type"} is not an allowed image type`,
-      );
+    if (crumb.imageData) {
+      // Oldest shape: the bytes were already in the document.
+      mimeType = crumb.contentType;
+      bytes = readBytes(crumb.imageData);
+    } else {
+      // Middle shape: a file in uploads/. Only its name was ever in the database,
+      // so the bytes have to be read back from disk.
+      mimeType = crumb.mimeType;
+      try {
+        bytes = await fs.readFile(path.join(LEGACY_UPLOAD_DIR, path.basename(crumb.filename)));
+      } catch (err) {
+        console.warn(`  skipped ${crumb._id}: ${crumb.filename} could not be read (${err.code})`);
+        skipped += 1;
+        continue;
+      }
+    }
+
+    if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
+      console.warn(`  skipped ${crumb._id}: ${mimeType ?? "no content type"} is not an allowed image type`);
       skipped += 1;
       continue;
     }
-
-    const bytes = readBytes(crumb.imageData);
-
-    const filename = `${crypto.randomUUID()}${extension}`;
-    await fs.writeFile(path.join(UPLOAD_DIR, filename), bytes);
 
     await Crumb.collection.updateOne(
       { _id: crumb._id },
       {
         $set: {
-          filename,
-          url: `/uploads/${filename}`,
-          mimeType,
-          size: bytes.length,
+          image: {
+            data: bytes,
+            originalName: crumb.originalName ?? "",
+            mimeType,
+            size: bytes.length,
+            uploadedAt: crumb.createdAt ?? new Date(),
+          },
         },
-        // The old fields go only after the file is safely on disk.
-        $unset: { imageData: "", contentType: "" },
+        // The old fields go only once the bytes are safely inside the document.
+        $unset: { imageData: "", contentType: "", filename: "", url: "", mimeType: "", size: "" },
       },
     );
 
-    console.log(`  moved ${crumb._id} -> ${filename} (${bytes.length} bytes)`);
+    console.log(`  moved ${crumb._id} -> image subdocument (${bytes.length} bytes)`);
     moved += 1;
   }
 
-  console.log(`\nMoved ${moved} crumb${moved === 1 ? "" : "s"} to ${UPLOAD_DIR}.`);
+  console.log(`\nMoved ${moved} crumb${moved === 1 ? "" : "s"} into their documents.`);
   if (skipped > 0) {
     console.log(
-      `${skipped} left untouched: their picture type is no longer allowed. ` +
-        "They still need migrating by hand, or deleting.",
+      `${skipped} left untouched: their picture could not be read or is no longer an allowed ` +
+        "image type. They still need migrating by hand, or deleting.",
     );
   }
 }
@@ -108,7 +121,6 @@ async function migrate() {
 migrate()
   .then(() => mongoose.disconnect())
   .catch((err) => {
-    console.error("Migration failed: ", err.message);
-    process.exitCode = 1;
-    mongoose.disconnect();
+    console.error(err);
+    process.exit(1);
   });

@@ -1,4 +1,5 @@
 const { daysBetween, todayInTimezone } = require("../utils/dates");
+const { imagePathFor } = require("../models/Image");
 const { inDisplayOrder } = require("./collectionSummary");
 const { buildTiles } = require("./collectionTiles");
 const { ALLOWED_TRANSITIONS } = require("./collectionStatus");
@@ -95,9 +96,12 @@ function serializeWidget(widget, today = todayInTimezone()) {
     case "image":
       return {
         ...base,
+        // The address of the picture route, not the picture. The bytes themselves
+        // are never in a payload — they are select:false, so an ordinary query
+        // cannot even bring them along.
         image: widget.image
           ? {
-              url: widget.image.url,
+              url: imagePathFor("widgets", widget._id),
               originalName: widget.image.originalName,
               mimeType: widget.image.mimeType,
               size: widget.image.size,

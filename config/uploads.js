@@ -1,12 +1,13 @@
 const path = require("node:path");
 
-// Where uploaded images are stored on disk. Override with UPLOAD_DIR in .env.
-const UPLOAD_DIR = path.resolve(
+// Uploaded pictures live inside the documents that own them (see models/Image.js),
+// so there is no folder to configure and nothing to back up separately.
+//
+// Where uploads/ used to be, kept ONLY so the one-off migration scripts can find
+// pictures saved before the move. Nothing in the running app reads this.
+const LEGACY_UPLOAD_DIR = path.resolve(
   process.env.UPLOAD_DIR ?? path.join(__dirname, "..", "uploads"),
 );
-
-// The URL path the files are served from (see app.js).
-const PUBLIC_UPLOAD_PATH = "/uploads";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per image
 
@@ -14,19 +15,18 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per image
 // so they get a much tighter limit than collection pictures.
 const MAX_AVATAR_SIZE = 1024 * 1024; // 1 MB
 
-// Allowed image types and the file extension we give each one. The extension
-// comes from this table, never from the user's file name.
+// Allowed image types. The bytes are stored and served back with the type they
+// arrived as, so this is the only place a picture's content type is decided.
 // SVG is deliberately missing: an SVG can contain scripts.
-const ALLOWED_IMAGE_TYPES = new Map([
-  ["image/jpeg", ".jpg"],
-  ["image/png", ".png"],
-  ["image/webp", ".webp"],
-  ["image/gif", ".gif"],
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
 ]);
 
 module.exports = {
-  UPLOAD_DIR,
-  PUBLIC_UPLOAD_PATH,
+  LEGACY_UPLOAD_DIR,
   MAX_FILE_SIZE,
   MAX_AVATAR_SIZE,
   ALLOWED_IMAGE_TYPES,

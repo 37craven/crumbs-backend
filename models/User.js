@@ -2,18 +2,11 @@ const mongoose = require("mongoose");
 
 const { Schema } = mongoose;
 
-// One uploaded profile photo, stored on disk like collection pictures (see
-// config/uploads.js). `filename` is never sent to clients; they get `url`.
-const avatarSchema = new Schema(
-  {
-    filename: { type: String, required: true },
-    url: { type: String, required: true },
-    mimeType: { type: String, required: true },
-    size: { type: Number, min: 0, default: 0 },
-    uploadedAt: { type: Date, default: Date.now },
-  },
-  { _id: false },
-);
+const { imageSchema, avatarPathFor } = require("./Image");
+
+// One uploaded profile photo, held inside the user document (see models/Image.js).
+// A profile photo is replaced by assigning a new subdocument; the old bytes go with
+// the old one, so there is no file left behind to clean up.
 
 // A single-use token from an email link. Only the hash is stored, so reading
 // the database does not let anyone verify an address or reset a password.
@@ -41,7 +34,7 @@ const userSchema = new mongoose.Schema({
   // Legacy full name. Read as a fallback by toSummary(), and cleared the next
   // time the user saves their profile.
   name: { type: String, trim: true, maxlength: 50 },
-  avatar: { type: avatarSchema, default: null },
+    avatar: { type: imageSchema, default: null },
   password: { type: String, required: true, select: false },
 
   // ---- Email verification --------------------------------------------------
@@ -79,7 +72,7 @@ userSchema.methods.toSummary = function toSummary() {
     username: this.username,
     firstName: this.firstName || legacy[0] || "",
     lastName: this.lastName || legacy.slice(1).join(" "),
-    avatarUrl: this.avatar ? this.avatar.url : null,
+    avatarUrl: this.avatar ? avatarPathFor(this._id) : null,
   };
 };
 

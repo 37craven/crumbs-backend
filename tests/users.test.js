@@ -81,10 +81,13 @@ Crumb.find = () => ({
             new Crumb({
               _id: new mongoose.Types.ObjectId(),
               user: target._id,
-              filename: "a.png",
-              url: "/uploads/a.png",
-              mimeType: "image/png",
-              size: 1,
+              image: {
+                data: Buffer.from("png"),
+                originalName: "a.png",
+                mimeType: "image/png",
+                size: 3,
+                uploadedAt: new Date(0),
+              },
               caption: c,
               createdAt: new Date(0),
             }),

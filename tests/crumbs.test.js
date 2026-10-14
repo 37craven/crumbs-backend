@@ -1,12 +1,8 @@
-// Exercises the crumb routes against real files on disk and real Mongoose
-// documents. Only the database calls are replaced with in-memory stand-ins.
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
+// Exercises the crumb routes against real Mongoose documents and real picture
+// bytes. Only the database calls are replaced with in-memory stand-ins — nothing
+// touches disk, because pictures now live inside the documents that own them.
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-secret";
-process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "crumbs-crumbs-"));
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -20,6 +16,16 @@ const Crumb = require("../models/Crumb");
 const Collection = require("../models/Collection");
 const { Widget, widgetModels } = require("../models/Widget");
 const { CAPTION_MAX } = require("../models/Crumb");
+
+// Stubbed before the app is loaded: routes/crumbs.js takes isFriend by
+// destructuring when it is first required, so the real module has to be in place
+// first. Picture routes now follow the same friendship rule as the crumbs
+// themselves, which is what makes that stub necessary.
+const friends = require("../services/friends");
+let acceptedFriends = new Set();
+friends.isFriend = async (a, b) => acceptedFriends.has(String(a) + "|" + String(b));
+friends.getFriendIds = async () => [];
+
 const app = require("../app");
 
 const userId = new mongoose.Types.ObjectId();
@@ -68,10 +74,10 @@ Crumb.findById = (id) => {
   return { select: async () => found };
 };
 
-// A crumb written before pictures moved onto disk: a Buffer in the document
-// and no url. It is a real document, because routes/crumbs.js calls isLegacy()
-// on it. Note the missing `url` and `filename`: the schema requires them, but
-// validation only runs on save, so an old document still reads fine.
+// A crumb written before pictures moved into an `image` subdocument: the bytes sit
+// loose in the document as `imageData`. It is a real document, because
+// routes/crumbs.js calls picture() on it. Note the missing `image`: the schema
+// requires it, but validation only runs on save, so an old document still reads fine.
 function legacyCrumb(fields = {}) {
   const doc = new Crumb({
     user: userId,
@@ -103,11 +109,9 @@ Collection.findOne = (filter) => ({
 
 // The image widget lookup the crumb->collection copy does.
 widgetModels.image.find = () => ({ select: () => ({ lean: async () => [] }) });
-widgetModels.image.exists = async ({ "image.filename": filename }) =>
-  widgets.some((w) => w.image?.filename === filename) ? { _id: 1 } : null;
 
 // Creating the widget writes it; stand in for that and keep the document so
-// the shared-file checks can see it.
+// the tests can see what the collection copy was given.
 widgetModels.image.prototype.save = async function save() {
   await this.validate();
   widgets.push(this);
@@ -149,6 +153,16 @@ const PNG = Buffer.from(
 );
 const SVG = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
 
+// A stored picture subdocument. `PNG` is declared above but used here lazily, so
+// this is a function rather than a constant.
+const pic = (data = PNG, mimeType = "image/png") => ({
+  data,
+  originalName: "a.png",
+  mimeType,
+  size: data.length,
+  uploadedAt: new Date(),
+});
+
 let server;
 let base;
 test.before(async () => {
@@ -157,20 +171,20 @@ test.before(async () => {
   });
   base = `http://127.0.0.1:${server.address().port}`;
 });
-test.after(() => {
-  server.close();
-  fs.rmSync(process.env.UPLOAD_DIR, { recursive: true, force: true });
-});
+test.after(() => server.close());
 test.beforeEach(() => {
   crumbs.length = 0;
   widgets.length = 0;
   accessibleCollections = new Set([String(collectionId)]);
-  for (const f of fs.readdirSync(process.env.UPLOAD_DIR)) {
-    fs.unlinkSync(path.join(process.env.UPLOAD_DIR, f));
-  }
+  acceptedFriends = new Set();
 });
 
-const filesOnDisk = () => fs.readdirSync(process.env.UPLOAD_DIR);
+// Every stored picture, wherever it is held. With pictures inside the documents
+// this replaces the old "what is in uploads/" check: nothing is on disk, so what
+// matters is which records still hold bytes.
+const storedPictures = () =>
+  crumbs.filter((c) => c.image?.data || c.imageData).length +
+  widgets.filter((w) => w.image?.data).length;
 
 async function send(method, url, { json, files, fields = {} } = {}) {
   const headers = { Cookie: cookie };
@@ -193,9 +207,9 @@ const png = (name = "a.png") => ({ data: PNG, type: "image/png", name });
 
 // ---- Listing and validation --------------------------------------------------
 test("my crumbs come back newest first, and nobody else's", async () => {
-  const old = new Crumb({ user: userId, filename: "old.png", url: "/uploads/old.png", mimeType: "image/png", caption: "old", createdAt: new Date(1000) });
-  const fresh = new Crumb({ user: userId, filename: "new.png", url: "/uploads/new.png", mimeType: "image/png", caption: "new", createdAt: new Date(2000) });
-  const notMine = new Crumb({ user: otherUserId, filename: "x.png", url: "/uploads/x.png", mimeType: "image/png", createdAt: new Date(3000) });
+  const old = new Crumb({ user: userId, image: pic(), caption: "old", createdAt: new Date(1000) });
+  const fresh = new Crumb({ user: userId, image: pic(), caption: "new", createdAt: new Date(2000) });
+  const notMine = new Crumb({ user: otherUserId, image: pic(), createdAt: new Date(3000) });
   crumbs.push(old, fresh, notMine);
 
   const { status, json } = await send("GET", "/api/crumbs");
@@ -203,7 +217,7 @@ test("my crumbs come back newest first, and nobody else's", async () => {
   assert.deepEqual(json.crumbs.map((c) => c.caption), ["new", "old"]);
 });
 
-test("an upload needs a picture; a non-image or an SVG is refused and nothing is left on disk", async () => {
+test("an upload needs a picture; a non-image or an SVG is refused and nothing is stored", async () => {
   const none = await send("POST", "/api/crumbs", { fields: { caption: "hi" } });
   assert.equal(none.status, 400);
 
@@ -217,11 +231,11 @@ test("an upload needs a picture; a non-image or an SVG is refused and nothing is
   });
   assert.equal(svg.status, 400);
 
-  assert.deepEqual(filesOnDisk(), []);
+  assert.equal(storedPictures(), 0);
   assert.deepEqual(crumbs, []);
 });
 
-test("a caption over the limit is refused and the uploaded file is cleaned up", async () => {
+test("a caption over the limit is refused and nothing is stored", async () => {
   const { status, json } = await send("POST", "/api/crumbs", {
     files: [png()],
     fields: { caption: "x".repeat(CAPTION_MAX + 1) },
@@ -229,7 +243,7 @@ test("a caption over the limit is refused and the uploaded file is cleaned up", 
 
   assert.equal(status, 400);
   assert.match(json.fields.caption[0], new RegExp(String(CAPTION_MAX)));
-  assert.deepEqual(filesOnDisk(), []);
+  assert.equal(storedPictures(), 0);
   assert.deepEqual(crumbs, []);
 });
 
@@ -246,10 +260,13 @@ test("the caption is trimmed, and no caption is allowed", async () => {
   assert.equal(without.json.crumb.caption, "");
 });
 
-test("a crumb never exposes the name of the file on disk", async () => {
+test("a crumb is served from its own route and never carries the bytes", async () => {
   const { json } = await send("POST", "/api/crumbs", { files: [png()] });
-  assert.match(json.crumb.imageUrl, /^\/uploads\/[\w-]+\.png$/);
+  assert.equal(json.crumb.imageUrl, `/api/crumbs/${json.crumb.id}/image`);
+  // Nothing that identifies the stored picture, and above all not the bytes.
+  assert.equal(json.crumb.image, undefined);
   assert.equal(json.crumb.filename, undefined);
+  assert.equal(JSON.stringify(json).includes(PNG.toString("base64")), false);
   assert.equal(json.crumb.collectionId, null);
 });
 
@@ -264,7 +281,11 @@ test("a crumb filed into a collection also becomes an image widget there", async
   assert.equal(json.filedInCollection, true);
   assert.equal(json.collectionCopyError, null);
   assert.equal(json.crumb.collectionId, String(collectionId));
-  assert.equal(filesOnDisk().length, 1); // ONE file, shared by both records
+  // The crumb and the widget each hold the picture. They used to share ONE file on
+  // disk, which is why deleting either had to check the other still needed it.
+  assert.equal(storedPictures(), 2);
+  assert.ok(widgets[0]?.image?.data, "the widget was given the bytes");
+  assert.ok(Buffer.isBuffer(widgets[0].image.data));
 });
 
 test("with no collection the crumb stands alone", async () => {
@@ -287,10 +308,10 @@ test("a collection I cannot reach still saves the crumb, and says so", async () 
   assert.equal(json.crumb.collectionId, null);
   assert.match(json.collectionCopyError, /Collection not found/);
   assert.equal(crumbs.length, 1);
-  assert.equal(filesOnDisk().length, 1); // the crumb's own file survives
+  assert.equal(storedPictures(), 1); // the crumb's own picture survives
 });
 
-test("a malformed collectionId is refused and the file is cleaned up", async () => {
+test("a malformed collectionId is refused and nothing is stored", async () => {
   const { status, json } = await send("POST", "/api/crumbs", {
     files: [png()],
     fields: { collectionId: "nope" },
@@ -299,41 +320,37 @@ test("a malformed collectionId is refused and the file is cleaned up", async () 
   assert.equal(status, 400);
   assert.deepEqual(json.fields.collectionId, ["Invalid id"]);
   assert.deepEqual(crumbs, []);
-  assert.deepEqual(filesOnDisk(), []);
+  assert.equal(storedPictures(), 0);
 });
 
-// ---- Deleting, and the shared file -------------------------------------------
-test("deleting my crumb takes the file with it when no collection copy exists", async () => {
+// ---- Deleting ----------------------------------------------------------------
+test("deleting my crumb removes the picture it held", async () => {
   const created = await send("POST", "/api/crumbs", { files: [png()] });
   const id = created.json.crumb.id;
-  assert.equal(filesOnDisk().length, 1);
+  assert.equal(storedPictures(), 1);
 
   const { status } = await send("DELETE", `/api/crumbs/${id}`);
   assert.equal(status, 200);
   assert.deepEqual(crumbs, []);
-  assert.deepEqual(filesOnDisk(), []);
+  assert.equal(storedPictures(), 0);
 });
 
-test("deleting a crumb that was filed into a collection KEEPS the shared file", async () => {
+test("deleting a crumb filed into a collection leaves the collection's copy alone", async () => {
   const created = await send("POST", "/api/crumbs", {
     files: [png()],
     fields: { collectionId: String(collectionId) },
   });
   const id = created.json.crumb.id;
-  const [onDisk] = filesOnDisk();
-
-  // The upload really did produce an image widget holding this file.
-  assert.equal(filesOnDisk().length, 1);
-  widgets.push({ image: { filename: onDisk } });
+  assert.equal(storedPictures(), 2);
 
   const { status } = await send("DELETE", `/api/crumbs/${id}`);
   assert.equal(status, 200);
   assert.deepEqual(crumbs, []);
-  assert.deepEqual(
-    filesOnDisk(),
-    [onDisk],
-    "the collection copy still needs the file, so it must not be unlinked",
-  );
+  // The widget still holds its own copy, so the collection is unaffected. Nothing
+  // has to be checked or cleaned up on disk any more.
+  assert.equal(storedPictures(), 1);
+  assert.equal(widgets.length, 1);
+  assert.ok(widgets[0].image.data);
 });
 
 test("deleting someone else's crumb is a 404", async () => {
@@ -351,6 +368,7 @@ test("crumb routes need a signed-in user", async () => {
     ["GET", "/api/crumbs"],
     ["POST", "/api/crumbs"],
     ["DELETE", `/api/crumbs/${new mongoose.Types.ObjectId()}`],
+    ["GET", `/api/crumbs/${new mongoose.Types.ObjectId()}/image`],
   ]) {
     const res = await fetch(base + path, { method });
     assert.equal(res.status, 401, `${method} ${path}`);
@@ -363,11 +381,80 @@ test("a malformed crumb id -> 400 before the database is touched", async () => {
   assert.match(json.message, /Invalid/);
 });
 
-// ---- Crumbs written before pictures moved onto disk ---------------------------
-// These hold a Buffer in the document and have no url. They must keep working,
-// so toPublic() points at the legacy image route and that route serves the
-// bytes.
-test("a legacy crumb falls back to its own image route", async () => {
+// ---- Serving the picture -----------------------------------------------------
+test("a crumb's picture is served from its own route", async () => {
+  const { json } = await send("POST", "/api/crumbs", { files: [png()] });
+
+  const res = await fetch(`${base}/api/crumbs/${json.crumb.id}/image`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-type"), "image/png");
+  assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), PNG);
+});
+
+test("a picture revalidates on an ETag instead of being cached for good", async () => {
+  // The address is now stable, so a replaced photo keeps its URL. An immutable
+  // cache would keep showing the old picture; an ETag lets the browser re-check.
+  const { json } = await send("POST", "/api/crumbs", { files: [png()] });
+  const url = `${base}/api/crumbs/${json.crumb.id}/image`;
+
+  const first = await fetch(url, { headers: { Cookie: cookie } });
+  const etag = first.headers.get("etag");
+  assert.ok(etag, "an ETag was sent");
+  assert.equal(first.headers.get("cache-control"), "private, no-cache");
+
+  const again = await fetch(url, { headers: { Cookie: cookie, "If-None-Match": etag } });
+  assert.equal(again.status, 304);
+  assert.equal((await again.arrayBuffer()).byteLength, 0);
+});
+
+test("a picture needs a signed-in user", async () => {
+  const { json } = await send("POST", "/api/crumbs", { files: [png()] });
+
+  const res = await fetch(`${base}/api/crumbs/${json.crumb.id}/image`);
+  assert.equal(res.status, 401);
+});
+
+// A crumb of somebody else's is only visible to an accepted friend, and a photo
+// is no more public than the crumb it belongs to. Before pictures moved into the
+// database they sat at /uploads/<uuid>.jpg and anyone who had the address could
+// read one; this is the rule that closed that.
+test("a non-friend is 404 for someone else's crumb picture", async () => {
+  const doc = new Crumb({ user: otherUserId, image: pic(), caption: "theirs" });
+  crumbs.push(doc);
+
+  const res = await fetch(`${base}/api/crumbs/${doc._id}/image`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get("content-type"), /^application\/json/);
+});
+
+test("an accepted friend MAY read someone else's crumb picture", async () => {
+  const doc = new Crumb({ user: otherUserId, image: pic(), caption: "theirs" });
+  crumbs.push(doc);
+  acceptedFriends.add(`${userId}|${otherUserId}`);
+
+  const res = await fetch(`${base}/api/crumbs/${doc._id}/image`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), PNG);
+});
+
+test("an unknown crumb picture is 404", async () => {
+  const res = await fetch(`${base}/api/crumbs/${new mongoose.Types.ObjectId()}/image`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(res.status, 404);
+});
+
+// ---- Crumbs written before pictures moved into an image subdocument ----------
+// These hold the bytes loose in the document. They must keep working, so
+// picture() falls back to them and the same route serves them.
+test("a legacy crumb keeps working and is served by the same route", async () => {
   const id = legacyCrumb({ caption: "SF25" });
 
   const { status, json } = await send("GET", "/api/crumbs");
@@ -376,40 +463,9 @@ test("a legacy crumb falls back to its own image route", async () => {
   const crumb = json.crumbs.find((c) => c.id === String(id));
   assert.equal(crumb.imageUrl, `/api/crumbs/${id}/image`);
   assert.equal(crumb.caption, "SF25");
-});
 
-test("a modern crumb is NOT given the legacy url", async () => {
-  await send("POST", "/api/crumbs", { files: [png()] });
-
-  const { json } = await send("GET", "/api/crumbs");
-  assert.match(json.crumbs[0].imageUrl, /^\/uploads\/[\w-]+\.png$/);
-});
-
-test("the legacy image route serves the stored bytes", async () => {
-  const id = legacyCrumb();
-
-  const res = await fetch(`${base}/api/crumbs/${id}/image`);
+  const res = await fetch(`${base}/api/crumbs/${id}/image`, { headers: { Cookie: cookie } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "image/png");
-  assert.equal(res.headers.get("x-content-type-options"), "nosniff");
   assert.deepEqual(Buffer.from(await res.arrayBuffer()), PNG);
-});
-
-test("the legacy image route needs no sign-in, so a photo can load in an <img>", async () => {
-  const id = legacyCrumb();
-
-  const res = await fetch(`${base}/api/crumbs/${id}/image`);
-  assert.equal(res.status, 200);
-});
-
-test("a modern crumb is 404 on the legacy route; its picture lives in /uploads", async () => {
-  const created = await send("POST", "/api/crumbs", { files: [png()] });
-
-  const res = await fetch(`${base}/api/crumbs/${created.json.crumb.id}/image`);
-  assert.equal(res.status, 404);
-});
-
-test("the legacy image route 404s an unknown crumb", async () => {
-  const res = await fetch(`${base}/api/crumbs/${new mongoose.Types.ObjectId()}/image`);
-  assert.equal(res.status, 404);
 });

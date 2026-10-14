@@ -8,7 +8,14 @@ const collection = { _id: "e1", title: "Beach Trip", description: "Sunny", tags:
 
 const notes = (row, order, fields) => ({ type: "notes", row, order, body: "", checklist: [], ...fields });
 const date = (row, order, d, label = "") => ({ type: "date", row, order, date: d, label });
-const image = (row, order, name) => ({ type: "image", row, order, image: name ? { url: `/uploads/${name}`, originalName: name } : null });
+// A picture is identified by the widget that holds it now, not by a file name:
+// the bytes live inside the widget (see models/Image.js) and are served from the
+// widget's own /image route.
+let widgetSeq = 0;
+const image = (row, order, name) => {
+  const _id = name ? `w${++widgetSeq}` : null;
+  return { _id, type: "image", row, order, image: name ? { originalName: name, mimeType: "image/png", size: 3, data: Buffer.from("png") } : null };
+};
 const link = (row, order, url, title) => ({ type: "link", row, order, url, preview: url ? { title, siteName: "Site", image: "https://x.test/og.png" } : null });
 
 test("a collection with no widgets has an empty summary", () => {
@@ -42,9 +49,20 @@ test("with no text anywhere, the preview falls back to the first checklist", () 
 });
 
 test("the cover is the first picture in display order (rows top to bottom, then left to right)", () => {
-  const { summary } = buildSummary(collection, [image("r2", 0, "bottom.png"), image("r1", 1, "second.png"), image("r1", 0, "first.png"), image("r1", 2, null)]);
-  assert.deepEqual(summary.imageUrls, ["/uploads/first.png", "/uploads/second.png", "/uploads/bottom.png"]);
+  const bottom = image("r2", 0, "bottom.png");
+  const second = image("r1", 1, "second.png");
+  const first = image("r1", 0, "first.png");
+  const empty = image("r1", 2, null);
+  const { summary } = buildSummary(collection, [bottom, second, first, empty]);
+
+  // Addresses of the widgets holding the pictures, not the bytes and not a file name.
+  assert.deepEqual(summary.imageUrls, [
+    `/api/widgets/${first._id}/image`,
+    `/api/widgets/${second._id}/image`,
+    `/api/widgets/${bottom._id}/image`,
+  ]);
   assert.equal(summary.imageCount, 3); // the empty image widget is not counted
+  assert.equal(summary.imageUrls.includes(`/api/widgets/${empty._id}/image`), false);
 });
 
 test("links are counted across all rows; empty ones are ignored", () => {
@@ -91,18 +109,22 @@ test("serializeCollection lists rows, people and the viewer's role", () => {
 });
 
 test("serializeCollection hides internals and has no thumbnail or checklist progress", () => {
-  const json = serializeCollection(stored({ searchText: "x", summary: { openChecklistItems: 2, imageCount: 13, imageUrls: ["/uploads/a.png"] } }), { today: "2026-10-02" });
+  const json = serializeCollection(stored({ searchText: "x", summary: { openChecklistItems: 2, imageCount: 13, imageUrls: ["/api/widgets/w9/image"] } }), { today: "2026-10-02" });
   assert.equal(json.searchText, undefined);
   assert.equal(json.summary.openChecklistItems, undefined);
   assert.equal(json.summary.imageCount, 13); // "13 memories"
-  assert.deepEqual(json.summary.tiles, [{ type: "image", url: "/uploads/a.png" }]);
+  assert.deepEqual(json.summary.tiles, [{ type: "image", url: "/api/widgets/w9/image" }]);
 });
 
-test("serializeWidget: image widgets hold one picture and hide the file name", () => {
+test("serializeWidget: image widgets point at their picture route and never carry the bytes", () => {
   const json = serializeWidget({ ...image("r1", 0, "a.png"), _id: "w1", collectionId: "e1", row: "r1" });
   assert.equal(json.rowId, "r1");
-  assert.equal(json.image.url, "/uploads/a.png");
+  assert.equal(json.image.url, "/api/widgets/w1/image");
+  assert.equal(json.image.originalName, "a.png");
+  // Neither the bytes nor anything identifying them reaches a payload.
+  assert.equal(json.image.data, undefined);
   assert.equal(json.image.filename, undefined);
+  assert.equal(json.image._id, undefined);
   assert.equal(json.thumbnailId, undefined);
   assert.equal(serializeWidget({ ...image("r1", 0, null), _id: "w2", collectionId: "e1", row: "r1" }).image, null);
 });

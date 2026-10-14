@@ -17,7 +17,7 @@ const {
   changePasswordSchema,
 } = require("../validators/profile");
 const { getFriendIds } = require("../services/friends");
-const { publicUrl, removeStoredFiles } = require("../services/imageFiles");
+const { imageFromUpload } = require("../models/Image");
 const { MAX_AVATAR_SIZE } = require("../config/uploads");
 const { sendMail, linkTo } = require("../services/mailer");
 const {
@@ -285,7 +285,8 @@ router.post("/password", requireAuth, passwordLimiter, async (req, res) => {
 });
 
 // PUT /api/auth/avatar — set the profile photo (multipart/form-data, field
-// "image", up to 1 MB). Uploading again replaces it and deletes the old file.
+// "image", up to 1 MB). Uploading again replaces it; the old bytes go with the
+// subdocument they were in, so nothing is left behind on disk.
 router.put("/avatar", requireAuth, imageUploader(MAX_AVATAR_SIZE), async (req, res) => {
   if (!req.file) {
     throw new HttpError(
@@ -294,30 +295,16 @@ router.put("/avatar", requireAuth, imageUploader(MAX_AVATAR_SIZE), async (req, r
     );
   }
 
-  const previous = req.user.avatar?.filename;
-
-  req.user.avatar = {
-    filename: req.file.filename,
-    url: publicUrl(req.file.filename),
-    mimeType: req.file.mimetype,
-    size: req.file.size,
-    uploadedAt: new Date(),
-  };
+  req.user.avatar = imageFromUpload(req.file);
   await req.user.save();
-
-  if (previous) await removeStoredFiles([previous]); // the replaced photo
 
   res.json({ user: await publicUser(req.user) });
 });
 
-// DELETE /api/auth/avatar — go back to the initial. The photo file goes too.
+// DELETE /api/auth/avatar — go back to the initial. The stored photo goes with it.
 router.delete("/avatar", requireAuth, async (req, res) => {
-  const previous = req.user.avatar?.filename;
-
   req.user.avatar = null;
   await req.user.save();
-
-  if (previous) await removeStoredFiles([previous]);
 
   res.json({ user: await publicUser(req.user) });
 });

@@ -14,7 +14,6 @@ const { refreshCollectionSummary } = require("../services/collectionSummary");
 const { serializeWidget, sortWidgets } = require("../services/serializers");
 const { collectionJson } = require("../services/collectionPayload");
 const { findAccessibleCollection } = require("../services/access");
-const { removeStoredFiles } = require("../services/imageFiles");
 
 // Mounted at /api/collections/:id/rows (see routes/collections.js). mergeParams lets this
 // router see the :id from that path.
@@ -93,22 +92,24 @@ router.patch("/:rowId", async (req, res) => {
   res.json({ collection: await collectionJson(saved, req.user._id) });
 });
 
-// DELETE /api/collections/:id/rows/:rowId — remove a row, its widgets and their pictures.
+// DELETE /api/collections/:id/rows/:rowId — remove a row and its widgets. Pictures live
+// inside those widgets, so they are removed with them.
 router.delete("/:rowId", async (req, res) => {
   const collection = await findAccessibleCollection(req.params.id, req.user._id);
   assertRow(collection, req.params.rowId);
 
-  const widgets = await Widget.find({ collectionId: collection._id, row: req.params.rowId }).lean();
-  const filenames = widgets.filter((w) => w.image).map((w) => w.image.filename);
+  const widgets = await Widget.find({ collectionId: collection._id, row: req.params.rowId })
+    .select("image")
+    .lean();
+  const images = widgets.filter((w) => w.image).length;
 
   await Widget.deleteMany({ collectionId: collection._id, row: req.params.rowId });
   await Collection.updateOne({ _id: collection._id }, { $pull: { rows: { _id: req.params.rowId } } });
-  await removeStoredFiles(filenames);
 
   const saved = await refreshCollectionSummary(collection._id);
   res.json({
     message: "Row deleted",
-    deleted: { widgets: widgets.length, images: filenames.length },
+    deleted: { widgets: widgets.length, images },
     collection: await collectionJson(saved, req.user._id),
   });
 });

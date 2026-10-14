@@ -19,7 +19,6 @@ const path = require("node:path");
 const mongoose = require("mongoose");
 
 const { SANDBOX_DB_NAME, getDatabaseName } = require("../config/database");
-const { UPLOAD_DIR } = require("../config/uploads");
 
 const APPLY = process.argv.includes("--apply");
 const INCLUDE_SEED = process.argv.includes("--include-seed");
@@ -138,10 +137,11 @@ async function prune() {
   const widgets = widgetsNow + widgetsLegacy;
   const legacy = legacyEvents.length;
 
-  const files = [
-    ...crumbs.map((c) => c.filename),
-    ...doomed.map((u) => u.avatar?.filename),
-  ].filter(Boolean);
+  // Pictures to count, not to delete: they live inside the documents that own
+  // them (see models/Image.js), so removing the documents removes them too.
+  const images =
+    crumbs.filter((c) => c.image || c.imageData).length +
+    doomed.filter((u) => u.avatar).length;
 
   tally.users = doomed.length;
   tally.collections = ownedIds.length;
@@ -150,7 +150,7 @@ async function prune() {
   tally.crumbs = crumbs.length;
   tally.friendships = friendships.length;
   tally.legacyEvents = legacy;
-  tally.files = files.length;
+  tally.files = images;
 
   console.log("Cascade:");
   console.log(`  ${String(ownedIds.length).padStart(3)}  collections owned (deleted)`);
@@ -159,7 +159,7 @@ async function prune() {
   console.log(`  ${String(crumbs.length).padStart(3)}  crumbs (deleted)`);
   console.log(`  ${String(friendships.length).padStart(3)}  friendships (deleted)`);
   console.log(`  ${String(legacy).padStart(3)}  legacy 'events' documents (deleted)`);
-  console.log(`  ${String(files.length).padStart(3)}  files on disk (deleted)\n`);
+  console.log(`  ${String(images).padStart(3)}  pictures held inside them (deleted with them)\n`);
 
   if (touchedIds.length > 0) {
     for (const c of collections.filter((x) => touchedIds.includes(x._id.toString()))) {
@@ -197,22 +197,11 @@ async function prune() {
     });
   await db.collection("users").deleteMany({ _id: { $in: doomedRef } });
 
-  // Files last: the documents naming them are already gone, so a failure here
-  // leaves an orphan on disk rather than a document pointing at nothing.
-  let removed = 0;
-  for (const name of files) {
-    try {
-      await fs.unlink(path.join(UPLOAD_DIR, path.basename(name)));
-      removed += 1;
-    } catch (err) {
-      if (err.code !== "ENOENT") console.error(`  could not delete ${name}: ${err.message}`);
-    }
-  }
-  tally.files = removed;
+  // Nothing else to clean up: pictures live inside the documents just removed.
 
   const left = await db.collection("users").countDocuments();
   console.log(
-    `Done. ${tally.users} accounts removed, ${left} left in ${dbName} (${removed} file(s) deleted).`,
+    `Done. ${tally.users} accounts removed, ${left} left in ${dbName}.`,
   );
   await mongoose.disconnect();
 }

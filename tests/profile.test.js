@@ -1,13 +1,9 @@
 // Exercises the profile routes against real files on disk and real Mongoose
 // documents. Only the database calls are replaced with in-memory stand-ins.
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
 const bcrypt = require("bcryptjs");
 
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-secret";
-process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "crumbs-profile-"));
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -110,21 +106,16 @@ test.before(async () => {
   });
   base = `http://127.0.0.1:${server.address().port}`;
 });
-test.after(() => {
-  server.close();
-  fs.rmSync(process.env.UPLOAD_DIR, { recursive: true, force: true });
-});
+test.after(() => server.close());
 test.beforeEach(() => {
   user = makeUser();
   takenAccounts = [];
   friendCount = 0;
   saved = {};
-  for (const f of fs.readdirSync(process.env.UPLOAD_DIR)) {
-    fs.unlinkSync(path.join(process.env.UPLOAD_DIR, f));
-  }
 });
 
-const filesOnDisk = () => fs.readdirSync(process.env.UPLOAD_DIR);
+// The signed-in test user, whose avatar subdocument holds whatever was uploaded.
+const storedAvatar = () => (user.avatar?.data ? 1 : 0);
 
 async function send(method, url, { json, files, auth = true } = {}) {
   const headers = auth ? { Cookie: cookie } : {};
@@ -296,36 +287,55 @@ test("uploading a photo stores the file and returns the user", async () => {
   });
 
   assert.equal(status, 200);
-  assert.match(json.user.avatarUrl, /^\/uploads\/[\w-]+\.png$/);
-  assert.equal(filesOnDisk().length, 1);
+  // Served from the API by user id, not from a folder on disk, and the bytes are
+  // never in the payload.
+  assert.equal(json.user.avatarUrl, `/api/users/${userId}/avatar`);
+  assert.equal(json.user.avatar, undefined);
+  assert.equal(storedAvatar(), 1);
 
-  const served = await fetch(base + json.user.avatarUrl);
+  const served = await fetch(base + json.user.avatarUrl, { headers: { Cookie: cookie } });
   assert.equal(served.status, 200);
+  assert.equal(served.headers.get("content-type"), "image/png");
   assert.equal(served.headers.get("x-content-type-options"), "nosniff");
 });
 
-test("uploading again REPLACES the photo and deletes the old file", async () => {
+test("uploading again REPLACES the photo, releasing the old bytes", async () => {
   const first = await send("PUT", "/api/auth/avatar", { files: [png("one.png")] });
-  const [oldFile] = filesOnDisk();
+  const oldId = String(user.avatar._id);
 
   const second = await send("PUT", "/api/auth/avatar", { files: [png("two.png")] });
 
   assert.equal(second.status, 200);
-  assert.notEqual(second.json.user.avatarUrl, first.json.user.avatarUrl);
-  assert.equal(filesOnDisk().length, 1);
-  assert.ok(!filesOnDisk().includes(oldFile), "the replaced photo is gone");
+  // The address is built from the user id, so it is deliberately unchanged. That
+  // is why the picture route revalidates on an ETag rather than being cached for
+  // good: a replaced photo keeps its URL.
+  assert.equal(second.json.user.avatarUrl, first.json.user.avatarUrl);
+  assert.equal(storedAvatar(), 1);
+  assert.notEqual(String(user.avatar._id), oldId, "a new subdocument replaced the old one");
 });
 
-test("removing the photo goes back to the initial and deletes the file", async () => {
+test("a photo route needs a signed-in user", async () => {
   await send("PUT", "/api/auth/avatar", { files: [png()] });
+
+  const res = await fetch(`${base}/api/users/${userId}/avatar`);
+  assert.equal(res.status, 401);
+});
+
+test("removing the photo goes back to the initial and takes the bytes with it", async () => {
+  await send("PUT", "/api/auth/avatar", { files: [png()] });
+  assert.equal(storedAvatar(), 1);
 
   const { status, json } = await send("DELETE", "/api/auth/avatar");
   assert.equal(status, 200);
   assert.equal(json.user.avatarUrl, null);
-  assert.deepEqual(filesOnDisk(), []);
+  assert.equal(storedAvatar(), 0);
+
+  // And the route now has nothing to serve.
+  const res = await fetch(`${base}/api/users/${userId}/avatar`, { headers: { Cookie: cookie } });
+  assert.equal(res.status, 404);
 });
 
-test("a non-image or an SVG avatar is refused and nothing is left on disk", async () => {
+test("a non-image or an SVG avatar is refused and nothing is stored", async () => {
   const text = await send("PUT", "/api/auth/avatar", {
     files: [{ data: Buffer.from("hello"), type: "text/plain", name: "a.txt" }],
   });
@@ -336,7 +346,7 @@ test("a non-image or an SVG avatar is refused and nothing is left on disk", asyn
   });
   assert.equal(svg.status, 400);
 
-  assert.deepEqual(filesOnDisk(), []);
+  assert.equal(storedAvatar(), 0);
   assert.equal(user.avatar, null);
 });
 

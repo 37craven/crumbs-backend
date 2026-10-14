@@ -9,6 +9,7 @@ const { parseOrThrow } = require("../validators/common");
 const { usernameParamSchema } = require("../validators/user");
 const { isFriend, relationshipFor, getFriendIds } = require("../services/friends");
 const { personSummary } = require("../services/people");
+const { sendImage } = require("../services/images");
 const { collectionContext, serializeCollection } = require("../services/collectionPayload");
 
 const router = express.Router();
@@ -77,6 +78,21 @@ router.get("/id/:userId", async (req, res) => {
   if (!user) throw new HttpError(404, "No such user");
 
   res.json({ user: personSummary(user) });
+});
+
+// GET /api/users/:userId/avatar — a profile photo.
+//
+// Anyone signed in may see one: a photo is shown on a profile, and every profile
+// already needs a session (see the router.use above). Only the picture BYTES are
+// asked for here — no name, no email, nothing else about the person.
+//
+// `+avatar.data` is needed because the bytes are select:false, so a plain find
+// would not bring them even for a user who does have a photo.
+router.get("/:userId/avatar", async (req, res) => {
+  const user = await User.findById(req.params.userId).select("+avatar.data");
+  if (!user?.avatar?.data) throw new HttpError(404, "No photo for that person");
+
+  return sendImage(req, res, user.avatar);
 });
 
 // GET /api/users/:username/crumbs — that person's crumbs.

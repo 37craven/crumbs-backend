@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { isValidDateString } = require("../utils/dates");
+const { imageSchema } = require("./Image");
 
 const { Schema } = mongoose;
 
@@ -65,17 +66,8 @@ const NotesWidget = Widget.discriminator(
 );
 
 // ---- Image: exactly one picture (or empty until one is uploaded) -----------
-const imageSchema = new Schema(
-  {
-    filename: { type: String, required: true }, // name on disk, never shown to clients
-    originalName: { type: String, trim: true, maxlength: 255, default: "" },
-    url: { type: String, required: true }, // e.g. /uploads/<uuid>.png
-    mimeType: { type: String, required: true },
-    size: { type: Number, min: 0, default: 0 },
-    uploadedAt: { type: Date, default: Date.now },
-  },
-  { _id: false },
-);
+// The bytes sit inside the widget (see models/Image.js), so replacing or
+// removing the picture is just replacing or removing this subdocument.
 
 const ImageWidget = Widget.discriminator(
   "ImageWidget",

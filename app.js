@@ -1,7 +1,6 @@
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const { UPLOAD_DIR, PUBLIC_UPLOAD_PATH } = require("./config/uploads");
 const requestLogger = require("./middleware/requestLogger");
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
@@ -27,17 +26,7 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-// 2. Uploaded images. "nosniff" stops browsers guessing a file is something
-//    other than the image type we stored.
-app.use(
-  PUBLIC_UPLOAD_PATH,
-  express.static(UPLOAD_DIR, {
-    index: false,
-    setHeaders: (res) => res.set("X-Content-Type-Options", "nosniff"),
-  }),
-);
-
-// 3. Routes
+// 2. Routes
 app.use("/", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/crumbs", crumbRoutes);
@@ -47,7 +36,7 @@ app.use("/api/links", linkRoutes);
 app.use("/api/friends", friendRoutes);
 app.use("/api/users", userRoutes);
 
-// 4. Order matters: unmatched URLs -> 404, then errors from anywhere above.
+// 3. Order matters: unmatched URLs -> 404, then errors from anywhere above.
 app.use(notFound);
 app.use(errorHandler);
 

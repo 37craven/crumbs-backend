@@ -13,5 +13,5 @@ npm-debug.log*
 
 .DS_Store
 
-# Uploaded images (recreate with: npm run seed)
-uploads
+# There is no uploads/ folder: pictures live inside the documents that own them
+# (see models/Image.js), so nothing about them needs to be kept out of git.

@@ -1,12 +1,8 @@
-// Exercises the widget routes with real files on disk and real Mongoose
-// documents. Only the database calls are replaced with in-memory stand-ins.
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
+// Exercises the widget routes against real Mongoose documents and real picture
+// bytes. Only the database calls are replaced with in-memory stand-ins — nothing
+// touches disk, because pictures now live inside the documents that own them.
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-secret";
-process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "crumbs-uploads-"));
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -34,7 +30,16 @@ function makeWidget(type, fields = {}) {
   return doc;
 }
 User.findById = async () => ({ _id: ownerId, toPublic: () => ({}) });
-Widget.findById = async (id) => docs.get(String(id)) ?? null;
+// Has to serve two call shapes: `await findById(id)` in findEditableWidget, and
+// `await findById(id).select("+image.data")` in the picture route. Returned as a
+// thenable that also carries .select, so both work against one stand-in.
+Widget.findById = (id) => {
+  const doc = docs.get(String(id)) ?? null;
+  return {
+    select: async () => doc,
+    then: (resolve, reject) => Promise.resolve(doc).then(resolve, reject),
+  };
+};
 Widget.deleteOne = async ({ _id }) => { docs.delete(String(_id)); };
 // The access check asks "is this user the owner or a collaborator of the collection?"
 Collection.exists = async (filter) =>
@@ -58,15 +63,17 @@ test.before(async () => {
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
-test.after(() => { server.close(); fs.rmSync(process.env.UPLOAD_DIR, { recursive: true, force: true }); });
+test.after(() => server.close());
 test.beforeEach(() => {
   docs.clear();
   allowedUsers.clear();
   allowedUsers.add(String(ownerId));
-  for (const f of fs.readdirSync(process.env.UPLOAD_DIR)) fs.unlinkSync(path.join(process.env.UPLOAD_DIR, f));
 });
 
-const filesOnDisk = () => fs.readdirSync(process.env.UPLOAD_DIR);
+// How many stored pictures there are, wherever they are held. Replaces the old
+// "what is in uploads/" check: nothing is on disk, so what matters is which
+// records still hold bytes.
+const storedPictures = () => [...docs.values()].filter((w) => w.image?.data).length;
 
 async function send(method, url, { json, files, field = "image" } = {}) {
   const headers = { Cookie: cookie };
@@ -89,29 +96,35 @@ test("uploading a picture stores the file, serves it, and updates the collection
   const { status, json } = await send("POST", `/api/widgets/${widget._id}/image`, { files: [png()] });
 
   assert.equal(status, 201);
-  assert.match(json.widget.image.url, /^\/uploads\/[\w-]+\.png$/);
-  assert.equal(json.widget.image.filename, undefined); // disk name stays private
+  // The picture is addressed by the widget that holds it, and the bytes never
+  // appear in a payload.
+  assert.equal(json.widget.image.url, `/api/widgets/${widget._id}/image`);
+  assert.equal(json.widget.image.data, undefined);
+  assert.equal(json.widget.image.filename, undefined);
   assert.equal(json.widget.rowId, String(rowId));
   assert.equal(json.collection.summary.imageCount, 1);
   assert.deepEqual(json.collection.summary.tiles.find((t) => t.type === "image"), { type: "image", url: json.widget.image.url });
-  assert.equal(filesOnDisk().length, 1);
+  assert.equal(storedPictures(), 1);
 
-  const served = await fetch(base + json.widget.image.url);
+  const served = await fetch(base + json.widget.image.url, { headers: { Cookie: cookie } });
   assert.equal(served.status, 200);
   assert.equal(served.headers.get("content-type"), "image/png");
   assert.equal(served.headers.get("x-content-type-options"), "nosniff");
 });
 
-test("uploading again REPLACES the picture and deletes the old file", async () => {
+test("uploading again REPLACES the picture in place, releasing the old one", async () => {
   const widget = makeWidget("image");
   const first = await send("POST", `/api/widgets/${widget._id}/image`, { files: [png("one.png")] });
   const second = await send("POST", `/api/widgets/${widget._id}/image`, { files: [png("two.png")] });
 
   assert.equal(second.status, 201);
   assert.equal(second.json.widget.image.originalName, "two.png");
-  assert.notEqual(second.json.widget.image.url, first.json.widget.image.url);
-  assert.equal(filesOnDisk().length, 1); // only the new one remains
-  assert.ok(!filesOnDisk().includes(path.basename(first.json.widget.image.url)));
+  // The address is built from the widget id, so it is deliberately the same both
+  // times. That is why the response revalidates on an ETag rather than being
+  // cached for good: a replaced photo keeps its URL.
+  assert.equal(second.json.widget.image.url, first.json.widget.image.url);
+  assert.equal(storedPictures(), 1); // one picture, the new one
+  assert.equal(docs.get(String(widget._id)).image.originalName, "two.png");
 });
 
 test("removing the picture empties the widget but keeps it", async () => {
@@ -122,27 +135,27 @@ test("removing the picture empties the widget but keeps it", async () => {
   assert.equal(removed.status, 200);
   assert.equal(removed.json.widget.image, null);
   assert.equal(removed.json.collection.summary.imageCount, 0);
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
   assert.ok(docs.has(String(widget._id))); // the widget is still there
 
   assert.equal((await send("DELETE", `/api/widgets/${widget._id}/image`)).status, 404); // nothing left to remove
 });
 
-test("non-image files and SVGs are rejected and nothing is left on disk", async () => {
+test("non-image files and SVGs are rejected and nothing is stored", async () => {
   const widget = makeWidget("image");
   for (const file of [{ data: Buffer.from("hello"), type: "text/plain", name: "notes.txt" }, { data: Buffer.from("<svg onload=alert(1)/>"), type: "image/svg+xml", name: "x.svg" }]) {
     const { status, json } = await send("POST", `/api/widgets/${widget._id}/image`, { files: [file] });
     assert.equal(status, 400);
     assert.match(json.message, /Only JPEG, PNG, WebP and GIF/);
   }
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
 });
 
-test("a file over 5 MB -> 413 and nothing left on disk", async () => {
+test("a file over 5 MB -> 413 and nothing stored", async () => {
   const widget = makeWidget("image");
   const big = { data: Buffer.alloc(5 * 1024 * 1024 + 10), type: "image/png", name: "big.png" };
   assert.equal((await send("POST", `/api/widgets/${widget._id}/image`, { files: [big] })).status, 413);
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
 });
 
 test("only ONE picture is accepted: extra files, or the wrong field name, are refused", async () => {
@@ -152,23 +165,23 @@ test("only ONE picture is accepted: extra files, or the wrong field name, are re
   const wrongField = await send("POST", `/api/widgets/${widget._id}/image`, { files: [png()], field: "photos" });
   assert.equal(wrongField.status, 400);
   assert.equal((await send("POST", `/api/widgets/${widget._id}/image`, { files: [] })).status, 400);
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
 });
 
-test("pictures only go into image widgets; the files are deleted on failure", async () => {
+test("pictures only go into image widgets, and nothing is stored on failure", async () => {
   const notes = makeWidget("notes");
   const { status, json } = await send("POST", `/api/widgets/${notes._id}/image`, { files: [png()] });
   assert.equal(status, 400);
   assert.match(json.message, /only be added to an image widget/);
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
 });
 
 // ---- Access ---------------------------------------------------------------------------
-test("a widget of a collection I am not part of is a 404, and uploaded files are deleted", async () => {
+test("a widget of a collection I am not part of is a 404, and nothing is stored", async () => {
   const widget = makeWidget("image");
   allowedUsers.clear();
   assert.equal((await send("POST", `/api/widgets/${widget._id}/image`, { files: [png()] })).status, 404);
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
   assert.equal((await send("GET", `/api/widgets/${widget._id}`)).status, 404);
   assert.equal((await send("DELETE", `/api/widgets/${widget._id}`)).status, 404);
   assert.ok(docs.has(String(widget._id))); // still there
@@ -290,12 +303,11 @@ test("a private link address is refused when saving a link widget", async () => 
 test("any kind of widget can be deleted; an image widget takes its picture with it", async () => {
   const image = makeWidget("image");
   await send("POST", `/api/widgets/${image._id}/image`, { files: [png()] });
-  assert.equal(filesOnDisk().length, 1);
+  assert.equal(storedPictures(), 1);
 
   const removed = await send("DELETE", `/api/widgets/${image._id}`);
   assert.equal(removed.status, 200);
-  assert.deepEqual(removed.json.deleted, { images: 1 });
-  assert.equal(filesOnDisk().length, 0);
+  assert.equal(storedPictures(), 0);
   assert.equal((await send("GET", `/api/widgets/${image._id}`)).status, 404);
 
   for (const type of ["notes", "date", "link"]) {

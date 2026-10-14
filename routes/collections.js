@@ -25,7 +25,6 @@ const { checkTransition } = require("../services/collectionStatus");
 const { findCollections } = require("../services/collectionSearch");
 const { accessFilter, findAccessibleCollection, assertOwner } = require("../services/access");
 const { assertCanInvite } = require("../services/friends");
-const { removeStoredFiles } = require("../services/imageFiles");
 const rowRoutes = require("./rows");
 
 const router = express.Router();
@@ -162,23 +161,19 @@ router.patch("/:id/status", async (req, res) => {
   res.json({ collection: await collectionJson(updated, req.user._id) });
 });
 
-// DELETE /api/collections/:id — creator only. Removes the collection, its widgets and
-// its image files, for everyone it was shared with.
+// DELETE /api/collections/:id — creator only. Removes the collection and its widgets,
+// for everyone it was shared with. Pictures live inside those widgets, so they go too.
 router.delete("/:id", async (req, res) => {
   const collection = await findAccessibleCollection(req.params.id, req.user._id);
   assertOwner(collection, req.user._id, "delete this collection");
 
   const widgets = await loadWidgets(collection._id);
-  const filenames = widgets.filter((w) => w.image).map((w) => w.image.filename);
+  const images = widgets.filter((w) => w.image).length;
 
   await Widget.deleteMany({ collectionId: collection._id });
   await Collection.deleteOne({ _id: collection._id });
-  await removeStoredFiles(filenames);
 
-  res.json({
-    message: "Collection deleted",
-    deleted: { widgets: widgets.length, images: filenames.length },
-  });
+  res.json({ message: "Collection deleted", deleted: { widgets: widgets.length, images } });
 });
 
 // ---- Sharing -----------------------------------------------------------------

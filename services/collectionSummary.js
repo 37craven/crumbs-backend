@@ -1,5 +1,6 @@
 const Collection = require("../models/Collection");
 const { Widget } = require("../models/Widget");
+const { imagePathFor } = require("../models/Image");
 const { dateSearchText } = require("../utils/dates");
 
 // Widgets in display order: row by row (top to bottom), then left to right.
@@ -38,7 +39,10 @@ function buildSummary(collection, widgets) {
       0,
     ),
     imageCount: images.length,
-    imageUrls: images.slice(0, 4).map((w) => w.image.url),
+    // Addresses of the picture routes, built from widget ids — which are stable,
+    // so a card keeps pointing at the right picture after it is replaced. Never
+    // the picture itself: this summary is copied into every list response.
+    imageUrls: images.slice(0, 4).map((w) => imagePathFor("widgets", w._id)),
     linkCount: links.length,
     links: links.slice(0, 4).map((w) => ({
       url: w.url,
