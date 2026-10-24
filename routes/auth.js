@@ -15,6 +15,7 @@ const {
   usernameSchema,
   updateProfileSchema,
   changePasswordSchema,
+  passwordSchema,
 } = require("../validators/profile");
 const { getFriendIds } = require("../services/friends");
 const { imageFromUpload } = require("../models/Image");
@@ -34,7 +35,7 @@ const router = express.Router();
 const registerSchema = z.object({
   username: usernameSchema,
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: passwordSchema,
 });
 
 const loginSchema = z.object({
@@ -53,8 +54,14 @@ const tokenField = z.string().trim().min(20, "That link is not valid").max(128, 
 const verifySchema = z.strictObject({ token: tokenField });
 const resetSchema = z.strictObject({
   token: tokenField,
-  newPassword: z.string().min(8, "Password must be at least 8 characters").max(200),
+  newPassword: passwordSchema,
 });
+
+// Sign-in always compares against a real bcrypt hash, even when no account
+// matches the email. Otherwise a missing address answers faster than a wrong
+// password, which tells an attacker which emails are registered.
+const DUMMY_PASSWORD_HASH =
+  "$2b$10$Y0Wlh3A2TNWlgkJfwDUbmOKnpzE3sF0Mw0qzhzvkM0q.CTHfIgcHO";
 
 const authLimiter = limiter(
   15 * 60 * 1000,
@@ -193,7 +200,9 @@ router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = parsed.data;
 
   const user = await User.findOne({ email }).select("+password");
-  const valid = user && (await bcrypt.compare(password, user.password));
+  const hash = user?.password ?? DUMMY_PASSWORD_HASH;
+  // Boolean(user) as well: the dummy compare must never be able to sign in.
+  const valid = (await bcrypt.compare(password, hash)) && Boolean(user);
 
   if (!valid) {
     return res.status(401).json({ message: "Invalid email or password" });

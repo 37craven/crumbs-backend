@@ -187,6 +187,45 @@ test("a wrong password is still a plain 401, not a 403", async () => {
   assert.equal(status, 401);
 });
 
+test("an unknown email still costs one bcrypt comparison", async () => {
+  const originalCompare = bcrypt.compare;
+  let comparisons = 0;
+  bcrypt.compare = async (...args) => {
+    comparisons += 1;
+    return originalCompare(...args);
+  };
+
+  try {
+    const { status } = await post("/api/auth/login", {
+      email: "nobody@example.com",
+      password: "password123",
+    });
+    assert.equal(status, 401);
+    assert.equal(comparisons, 1, "no account should still compare a dummy hash");
+  } finally {
+    bcrypt.compare = originalCompare;
+  }
+});
+
+test("a password longer than 72 bytes is refused at registration", async () => {
+  const { status, json } = await register({ password: "a".repeat(73) });
+
+  assert.equal(status, 400);
+  assert.match(json.fields.password[0], /72 bytes/);
+  assert.equal(accounts.size, 0, "no account should be created");
+});
+
+test("the 72-byte limit counts bytes, not characters", async () => {
+  // 37 characters, but each "é" is two bytes in UTF-8: 74 bytes, over the limit.
+  const { status } = await register({ password: "é".repeat(37) });
+  assert.equal(status, 400);
+});
+
+test("a 72-byte password is still accepted", async () => {
+  const { status } = await register({ password: "a".repeat(72) });
+  assert.equal(status, 201);
+});
+
 // ---- Verifying --------------------------------------------------------------
 test("a valid link verifies the account AND signs the user in", async () => {
   await register();

@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const helmet = require("helmet");
 const requestLogger = require("./middleware/requestLogger");
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
@@ -17,6 +18,31 @@ const app = express();
 
 // 1. Middleware that runs on every request
 app.use(requestLogger);
+
+// Security headers. The API only answers JSON and image bytes, so its own CSP
+// can forbid every subresource (the SPA's CSP is set by the frontend, where the
+// HTML actually lives). `cross-origin` is deliberate: the React app runs on a
+// different origin in development and loads pictures from here with <img>.
+const helmetOptions = {
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      baseUri: ["'none'"],
+      formAction: ["'none'"],
+      frameAncestors: ["'none'"],
+      objectSrc: ["'none'"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  frameguard: { action: "deny" },
+};
+if (process.env.NODE_ENV !== "production") {
+  // HSTS on plain-HTTP localhost is pointless, and browsers ignore it there.
+  helmetOptions.strictTransportSecurity = false;
+}
+app.use(helmet(helmetOptions));
+
 app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",

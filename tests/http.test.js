@@ -43,6 +43,21 @@ async function call(method, path, { body, rawBody, auth = true } = {}) {
   return { status: response.status, json: await response.json().catch(() => null) };
 }
 
+test("security headers are set, and the server is not advertised", async () => {
+  const response = await fetch(base + "/");
+
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  // Pictures are loaded by the frontend from another origin in development.
+  assert.equal(
+    response.headers.get("cross-origin-resource-policy"),
+    "cross-origin",
+  );
+  assert.match(response.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.equal(response.headers.get("x-powered-by"), null);
+});
+
 test("unknown route -> 404 JSON", async () => {
   const { status, json } = await call("GET", "/api/nothing-here", { auth: false });
   assert.equal(status, 404);

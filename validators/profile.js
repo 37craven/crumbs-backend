@@ -2,6 +2,19 @@ const { z } = require("zod");
 
 const MAX_NAME = 50;
 
+// bcrypt only looks at the first 72 bytes of a password. Anything beyond that
+// would be silently ignored, so two different long passwords could unlock the
+// same account. Cap by bytes rather than characters: "é" is two bytes in UTF-8.
+const PASSWORD_MAX_BYTES = 72;
+
+const passwordSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters")
+  .refine(
+    (value) => Buffer.byteLength(value, "utf8") <= PASSWORD_MAX_BYTES,
+    `Password must be at most ${PASSWORD_MAX_BYTES} bytes`,
+  );
+
 const usernameSchema = z
   .string()
   .trim()
@@ -29,12 +42,14 @@ const updateProfileSchema = z.strictObject({
 
 const changePasswordSchema = z.strictObject({
   currentPassword: z.string().min(1, "Enter your current password"),
-  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  newPassword: passwordSchema,
 });
 
 module.exports = {
   usernameSchema,
   updateProfileSchema,
   changePasswordSchema,
+  passwordSchema,
   MAX_NAME,
+  PASSWORD_MAX_BYTES,
 };
