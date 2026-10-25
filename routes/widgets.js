@@ -40,7 +40,7 @@ async function findEditableWidget(id, userId) {
 // are.
 async function sendWidgetImage(req, res) {
   // `+image.data` because the bytes are select:false on every ordinary query.
-  const widget = await Widget.findById(req.params.id).select("collectionId type +image.data");
+  const widget = await Widget.findById(req.params.id).select("collectionId type image +image.data");
 
   const allowed =
     widget &&

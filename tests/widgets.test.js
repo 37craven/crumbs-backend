@@ -36,7 +36,12 @@ User.findById = async () => ({ _id: ownerId, toPublic: () => ({}) });
 Widget.findById = (id) => {
   const doc = docs.get(String(id)) ?? null;
   return {
-    select: async () => doc,
+    select: async (projection) => {
+      if (!doc || /(?:^|\s)image(?:\s|$)/.test(projection)) return doc;
+      const copy = doc.toObject();
+      delete copy.image;
+      return copy;
+    },
     then: (resolve, reject) => Promise.resolve(doc).then(resolve, reject),
   };
 };
