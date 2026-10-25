@@ -9,7 +9,7 @@ const { MAX_FILE_SIZE, ALLOWED_IMAGE_TYPES } = require("../config/uploads");
 // kept in the document (see models/Image.js), so multer holds the upload in memory
 // and the handler puts it straight into the record.
 //
-// In memory is affordable here because config/uploads.js caps an upload at 5 MB, and
+// In memory is affordable here because config/uploads.js caps an upload at 4 MB, and
 // only one file is accepted. Nothing is ever left on disk, so a request that fails
 // halfway no longer needs the file cleaned up afterwards.
 const storage = multer.memoryStorage();
@@ -28,7 +28,7 @@ const uploadImage = multer({
 
 // Same as uploadImage but capped at `bytes`. Profile photos are small square
 // crops the client has already resized, so they get a tighter limit than the
-// 5 MB collection pictures.
+// 4 MB collection pictures.
 function imageUploader(bytes) {
   return multer({
     storage,

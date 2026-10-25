@@ -1,5 +1,6 @@
 const LIVE_DB_NAME = "crumbs";
 const SANDBOX_DB_NAME = "crumbs_dev";
+const PREVIEW_DB_NAME = "crumbs_preview";
 
 function getDatabaseName(uri) {
   const match = uri.match(/^mongodb(?:\+srv)?:\/\/[^/]*\/([^/?]+)(?:\?|$)/);
@@ -12,6 +13,7 @@ function assertSafeDatabase(uri) {
   }
 
   const isProduction = process.env.NODE_ENV === "production";
+  const isVercelPreview = process.env.VERCEL_ENV === "preview";
   const dbName = getDatabaseName(uri);
 
   if (!dbName) {
@@ -22,7 +24,14 @@ function assertSafeDatabase(uri) {
     );
   }
 
-  if (isProduction && dbName !== LIVE_DB_NAME) {
+  if (isVercelPreview && dbName !== PREVIEW_DB_NAME) {
+    throw new Error(
+      `Refusing to start: this is a Vercel preview but MONGODB_URI points at "${dbName}". ` +
+        `Previews must use the "${PREVIEW_DB_NAME}" database.`,
+    );
+  }
+
+  if (!isVercelPreview && isProduction && dbName !== LIVE_DB_NAME) {
     throw new Error(
       `Refusing to start: NODE_ENV=production but MONGODB_URI points at "${dbName}". ` +
         `Production must use the "${LIVE_DB_NAME}" database.`,
@@ -42,6 +51,7 @@ function assertSafeDatabase(uri) {
 module.exports = {
   LIVE_DB_NAME,
   SANDBOX_DB_NAME,
+  PREVIEW_DB_NAME,
   getDatabaseName,
   assertSafeDatabase,
 };

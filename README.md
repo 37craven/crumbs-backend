@@ -200,7 +200,7 @@ A **crumb** is one photo on the signed-in user's Crumbs page. It is deliberately
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/crumbs` | My crumbs, newest first |
-| POST | `/api/crumbs` | Upload a photo (`multipart/form-data`, field `image`, 5 MB max). Optional fields: `caption` (60 characters), `collectionId` |
+| POST | `/api/crumbs` | Upload a photo (`multipart/form-data`, field `image`, 4 MB max). Optional fields: `caption` (60 characters), `collectionId` |
 | DELETE | `/api/crumbs/:id` | Remove one of my crumbs |
 
 **Filing a crumb into a collection.** Sending `collectionId` also files the picture into that collection as an image widget on its **first row**. You must be able to edit the collection, or you get a `404` like anyone else would.
@@ -247,8 +247,7 @@ All filters are optional and combine with AND.
 - **Dates are calendar days.** They are stored as `YYYY-MM-DD` text, not timestamps, so a date never shifts across timezones. "Today" is decided by `APP_TIMEZONE`.
 - **Derived values are never stored.** `daysUntil`, `dateStatus`, `isOverdue` and `role` are worked out on every read.
 - **Link safety.** Pasted links are fetched by the server to build the preview. Private, local and non-http(s) addresses are refused, redirects are re-checked, and responses are capped at 512 KB and 5 seconds. A site that cannot be reached still saves, with `preview.status: "unavailable"`.
-- **Pictures.** JPEG, PNG, WebP or GIF, up to 5 MB, one per image widget. Files are stored in `uploads/` under random names and served from `/uploads/<name>`. Replacing or removing a picture, or deleting its widget, row or collection, deletes the file. A profile photo has the same rules with a 1 MB limit.
-- **One file can back two records.** A crumb filed into a collection shares its file with that collection's image widget. The file is only deleted once nothing refers to it any more.
+- **Pictures.** JPEG, PNG, WebP or GIF, up to 4 MB, one per image widget. The bytes are stored inside the owning document and served from its `/api/.../image` route. A profile photo has the same rules with a 1 MB limit.
 - **Names.** `firstName` and `lastName` are each up to 50 characters and may be empty. Accounts created before the split kept one `name` field: it is read as a fallback and cleared the next time the profile is saved.
 
 ### Sample: create a collection, then build it up
@@ -309,16 +308,17 @@ Every error has the same shape. `fields` appears only for validation problems, w
 | `403` | Only the creator may do this (delete the collection, manage people) |
 | `404` | Collection or widget not found, or you are not part of it, or unknown route |
 | `409` | Status move not allowed, already a friend / already shared, or the record changed while you were editing it |
-| `413` | Image over 5 MB |
+| `413` | Image over 4 MB |
 | `500` | Unexpected server error (details are logged, not sent) |
 
 ## Project layout
 
 ```
-server.js               loads .env, connects to MongoDB, syncs indexes, starts listening
+server.js               loads .env, connects to MongoDB, starts listening
+scripts/sync-indexes.js keeps the MongoDB indexes in sync
 app.js                  middleware and route mounting only
-config/database.js      live/sandbox names and the guard
-config/uploads.js       upload folder, size and type limits
+config/database.js      live/sandbox/preview names and the guard
+config/uploads.js       image size/type limits and the legacy upload path
 models/                 User, Collection, Widget (+ notes/image/date/link types), Friendship, Crumb
 routes/                 auth, collections, rows, widgets, links, friends, crumbs, health
 validators/             Zod schemas for request bodies and query strings
@@ -326,9 +326,10 @@ services/               business logic: access rules, friends, status rules, car
                         summaries, link previews, serializers, payload builders, crumbs
 middleware/             auth, logger, 404, error handler, id check, uploads
 utils/                  dates, HttpError
-scripts/                reset-sandbox, seed, smoke
+scripts/                reset-sandbox, seed, smoke, migrations, index sync, image audit
 tests/                  node:test suites (npm test)
-uploads/                uploaded images (git-ignored)
+api/index.js            Vercel function entry
+uploads/                legacy files only, kept locally for migration
 ```
 
 ## Conventions
@@ -340,11 +341,11 @@ uploads/                uploaded images (git-ignored)
 - The `password` field is `select: false`, so it never comes back from a query. Use `.select("+password")` only to compare a hash.
 - `usernameLower` is the case-insensitive unique key; `username` keeps the display casing. A pre-validate hook keeps them in sync — do not set either directly.
 - Never return a User document directly; call `.toPublic()` for yourself and `.toSummary()` for anybody else. Neither ever includes the password or, for other people, the email.
-- Uploaded files are referenced by `filename` in the database and `url` in responses. `filename` is never sent to clients. `services/imageFiles.js` owns deleting files, and `publicUrl()` builds the address.
-- Anything that deletes a file has to consider that one file may back both a crumb and an image widget — use `services/crumbs.js:removeFileUnlessShared()`.
+- Uploaded pictures are embedded in the document that owns them. `imagePathFor()` and `avatarPathFor()` build the URLs clients use; image bytes are `select: false` and never appear in ordinary payloads.
+- A crumb filed into a collection stores its own copy in the image widget, so deleting one does not affect the other.
 
 ## Notes
 
 - Changing an indexed field does not rebuild the index. Drop it manually.
 - In production, cookies are marked `secure`, so the app must be served over HTTPS or sign-in will fail silently.
-- Renaming a Mongoose model renames the JavaScript side only. `syncIndexes()` in `server.js` does not rename the MongoDB collection, so an old `events` collection is left behind — run `npm run db:reset` after the Collection rename.
+- Renaming a Mongoose model renames the JavaScript side only. The index sync script does not rename the MongoDB collection, so an old `events` collection is left behind — run `npm run db:reset` after the Collection rename.

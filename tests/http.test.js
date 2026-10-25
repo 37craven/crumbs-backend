@@ -58,6 +58,17 @@ test("security headers are set, and the server is not advertised", async () => {
   assert.equal(response.headers.get("x-powered-by"), null);
 });
 
+test("health reports a degraded status when the database is down", async () => {
+  for (const path of ["/health", "/api/health"]) {
+    const response = await fetch(base + path);
+    const json = await response.json();
+
+    assert.equal(response.status, 503, path);
+    assert.equal(json.status, "degraded", path);
+    assert.equal(json.database, "disconnected", path);
+  }
+});
+
 test("unknown route -> 404 JSON", async () => {
   const { status, json } = await call("GET", "/api/nothing-here", { auth: false });
   assert.equal(status, 404);

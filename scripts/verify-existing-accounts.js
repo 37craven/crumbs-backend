@@ -13,18 +13,10 @@ const mongoose = require("mongoose");
 process.loadEnvFile();
 
 const User = require("../models/User");
-const { SANDBOX_DB_NAME, getDatabaseName } = require("../config/database");
-
-const dbName = getDatabaseName(process.env.MONGODB_URI ?? "");
-
-if (dbName !== SANDBOX_DB_NAME) {
-  console.error(
-    `Refusing to run: MONGODB_URI points at "${dbName}", not the sandbox "${SANDBOX_DB_NAME}".`,
-  );
-  process.exit(1);
-}
+const { assertSafeDatabase } = require("../config/database");
 
 async function run() {
+  assertSafeDatabase(process.env.MONGODB_URI);
   await mongoose.connect(process.env.MONGODB_URI);
 
   // Only accounts that predate verification: those with no decision recorded.

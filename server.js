@@ -1,34 +1,23 @@
-const mongoose = require("mongoose");
+try {
+  process.loadEnvFile();
+} catch (err) {
+  if (err.code !== "ENOENT") throw err;
+}
 
-// Load .env BEFORE requiring anything that reads process.env.
-process.loadEnvFile();
-
-const { assertSafeDatabase } = require("./config/database");
-const Collection = require("./models/Collection");
-const Friendship = require("./models/Friendship");
-const { Widget } = require("./models/Widget");
 const app = require("./app");
+const { connectDB } = require("./config/connection");
 
 const PORT = process.env.PORT ?? 3000;
 
-if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET is not set. Check your .env file.");
+if (process.env.VERCEL) {
+  module.exports = app;
+} else {
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
+    })
+    .catch((err) => {
+      console.error("Connection failed: ", err.message);
+      process.exit(1);
+    });
 }
-
-const dbName = assertSafeDatabase(process.env.MONGODB_URI);
-
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(async () => {
-    console.log(`Connected to MongoDB (${dbName})`);
-    // Makes the database indexes match the schemas, and drops indexes the
-    // schemas no longer define. Needed once after the widget rules changed.
-    await Promise.all([Collection.syncIndexes(), Widget.syncIndexes(), Friendship.syncIndexes()]);
-    console.log("Indexes up to date");
-  })
-  .catch((err) => {
-    console.error("Connection failed: ", err.message);
-    process.exit(1);
-  });
-
-app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));

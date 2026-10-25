@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
+const { connectDB } = require("./config/connection");
 const requestLogger = require("./middleware/requestLogger");
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
@@ -15,6 +16,12 @@ const friendRoutes = require("./routes/friends");
 const userRoutes = require("./routes/users");
 
 const app = express();
+
+app.set("trust proxy", 1);
+
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET is not set. Check your .env file.");
+}
 
 // 1. Middleware that runs on every request
 app.use(requestLogger);
@@ -54,6 +61,20 @@ app.use(cookieParser());
 
 // 2. Routes
 app.use("/", healthRoutes);
+app.use("/api", healthRoutes);
+
+if (process.env.NODE_ENV !== "test") {
+  app.use(async (req, res, next) => {
+    try {
+      await connectDB();
+      next();
+    } catch (err) {
+      console.error("Database connection failed:", err.message);
+      res.status(503).json({ message: "Database unavailable" });
+    }
+  });
+}
+
 app.use("/api/auth", authRoutes);
 app.use("/api/crumbs", crumbRoutes);
 app.use("/api/collections", collectionRoutes);

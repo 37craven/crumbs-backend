@@ -9,7 +9,7 @@ const LEGACY_UPLOAD_DIR = path.resolve(
   process.env.UPLOAD_DIR ?? path.join(__dirname, "..", "uploads"),
 );
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per image
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4 MB per image
 
 // Profile photos are resized to a small square by the client before upload,
 // so they get a much tighter limit than collection pictures.

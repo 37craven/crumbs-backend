@@ -9,7 +9,7 @@
 // with you.
 // It first DELETES the collections of you and those three people, so you can run it
 // again at any time.
-// Like reset-sandbox.js, it refuses to touch anything but the sandbox database.
+// It refuses to touch anything but the sandbox or preview database.
 
 const zlib = require("node:zlib");
 const bcrypt = require("bcryptjs");
@@ -17,7 +17,7 @@ const mongoose = require("mongoose");
 
 process.loadEnvFile();
 
-const { SANDBOX_DB_NAME, getDatabaseName } = require("../config/database");
+const { SANDBOX_DB_NAME, PREVIEW_DB_NAME, getDatabaseName } = require("../config/database");
 const User = require("../models/User");
 const Collection = require("../models/Collection");
 const Friendship = require("../models/Friendship");
@@ -28,8 +28,10 @@ const { getEmbedUrl } = require("../services/linkPreview");
 const { todayInTimezone, addDays } = require("../utils/dates");
 
 const dbName = getDatabaseName(process.env.MONGODB_URI ?? "");
-if (dbName !== SANDBOX_DB_NAME) {
-  console.error(`Refusing to seed: MONGODB_URI points at "${dbName}", not "${SANDBOX_DB_NAME}".`);
+if (dbName !== SANDBOX_DB_NAME && dbName !== PREVIEW_DB_NAME) {
+  console.error(
+    `Refusing to seed: MONGODB_URI points at "${dbName}", not "${SANDBOX_DB_NAME}" or "${PREVIEW_DB_NAME}".`,
+  );
   process.exit(1);
 }
 
